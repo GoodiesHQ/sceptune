@@ -1,0 +1,14 @@
+*.key
+*.crt
+*.pem
+*.csr
+*.env
+*.jwk
+*.txt
+*.key.json
+*.pub.json
+*.db
+*.db-shm
+*.db-wal
+
+ca/

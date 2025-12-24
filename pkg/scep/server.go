@@ -1,0 +1,119 @@
+package scep
+
+import (
+	"context"
+	"crypto"
+	"crypto/x509"
+	"net/http"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"github.com/smallstep/scep"
+)
+
+type Signer interface {
+	SignCSR(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, error)
+}
+
+type Verifier interface {
+	VerifyCSR(ctx context.Context, csr string, txid string) (bool, error)
+	NotifyFailure(ctx context.Context, csr, txid string, hResult int64, errorDescription string) error
+	NotifySuccess(ctx context.Context, csr, txid string, crt, root *x509.Certificate) error
+}
+
+type Store interface {
+	StoreCert(csr, txid string, cert *x509.Certificate) error
+	GetCert(csr, txid string) (*x509.Certificate, bool, error)
+	MarkIntuneNotified(csr, txid string) (bool, error)
+}
+
+type SCEPServerWindows struct {
+	raCrt    *x509.Certificate
+	raKey    crypto.PrivateKey
+	caChain  []*x509.Certificate
+	log      zerolog.Logger
+	signer   Signer
+	verifier Verifier
+	store    Store
+}
+
+// NewSCEPServerWindows creates a new SCEP server instance
+func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate, msClient Verifier, signer Signer, store Store) *SCEPServerWindows {
+	return &SCEPServerWindows{
+		raCrt:    raCert,
+		raKey:    raKey,
+		caChain:  caChain,
+		verifier: msClient,
+		signer:   signer,
+		store:    store,
+		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
+	}
+}
+
+// ServeHTTP implements the http.Handler interface
+func (s *SCEPServerWindows) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	// Parse operation from query parameters
+	operation := r.URL.Query().Get("operation")
+	s.log.Debug().Str("operation", operation).Str("remote_addr", r.RemoteAddr).Msgf("Received %s request", r.Method)
+
+	switch operation {
+	case "GetCACaps":
+		s.handleGetCACaps(w, r)
+	case "GetCACert":
+		s.handleGetCACert(w, r)
+	case "PKIOperation":
+		s.handlePKIOperation(w, r)
+	default:
+		s.log.Warn().Str("operation", operation).Msg("Unknown operation")
+		http.Error(w, "Unknown operation", http.StatusBadRequest)
+	}
+}
+
+// logCSRDetails logs detailed information about the CSR
+func (s *SCEPServerWindows) logCSRDetails(csr *x509.CertificateRequest) {
+	s.log.Debug().
+		Str("subject_common_name", csr.Subject.CommonName).
+		Strs("subject_organization", csr.Subject.Organization).
+		Strs("subject_organizational_unit", csr.Subject.OrganizationalUnit).
+		Strs("subject_country", csr.Subject.Country).
+		Strs("subject_locality", csr.Subject.Locality).
+		Strs("subject_province", csr.Subject.Province).
+		Str("public_key_algorithm", csr.PublicKeyAlgorithm.String()).
+		Str("signature_algorithm", csr.SignatureAlgorithm.String()).
+		Strs("dns_names", csr.DNSNames).
+		Strs("email_addresses", csr.EmailAddresses).
+		Msg("Logging CSR details")
+
+	/*
+		// Log the CSR in PEM format for easy copying
+		csrPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE REQUEST",
+			Bytes: csr.Raw,
+		})
+		s.log.Printf("\nCSR (PEM format):\n%s\n", string(csrPEM))
+
+		// Log base64 encoded CSR for Intune API
+		csrBase64 := base64.StdEncoding.EncodeToString(csr.Raw)
+		s.log.Printf("CSR (Base64 - for Intune API):\n%s\n", csrBase64)
+	*/
+}
+
+// sendFailureResponse sends a SCEP failure response
+func (s *SCEPServerWindows) sendFailureResponse(w http.ResponseWriter, msg *scep.PKIMessage, failInfo scep.FailInfo) {
+	s.log.Warn().Str("fail_info", failInfo.String()).Msg("Sending failure response")
+
+	// Create failure response
+	certRep, err := msg.Fail(s.raCrt, s.raKey, failInfo)
+	if err != nil {
+		s.log.Error().Err(err).Msg("Error creating failure response")
+		http.Error(w, "Failed to create response", http.StatusInternalServerError)
+		return
+	}
+
+	// Send the response
+	w.Header().Set("Content-Type", "application/x-pki-message")
+	w.WriteHeader(http.StatusOK)
+	w.Write(certRep.Raw)
+	s.log.Debug().Msg("Sent failure response")
+}
