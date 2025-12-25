@@ -19,7 +19,6 @@ type Params struct {
 	ClientID        string
 	ClientSecret    string
 	Port            uint16
-	ScepPath        string
 	CaCrt           *x509.Certificate
 	RaCrt           *x509.Certificate
 	RaKey           crypto.PrivateKey
@@ -27,12 +26,13 @@ type Params struct {
 	JWK             *jose.JSONWebKey
 	APIURL          string
 	ProvisionerName string
+	ScepPath        string
+	CRLPath         string
 	DBPath          string
 }
 
 func loadParams(c *cli.Command) (*Params, error) {
 	port := c.Uint16("port")
-	scepPath := c.String("scep-path")
 	tenantID := c.String("tenant-id")
 	clientID := c.String("client-id")
 	clientSecret := c.String("client-secret")
@@ -46,6 +46,8 @@ func loadParams(c *cli.Command) (*Params, error) {
 	jwkPasswordFile := c.String("json-web-key-password-file")
 	apiUrl := c.String("step-api-url")
 	provisionerName := c.String("step-provisioner-name")
+	scepPath := c.String("scep-path")
+	crlPath := c.String("crl-path")
 	dbPath := c.String("database-path")
 
 	// verify required parameters
@@ -55,6 +57,14 @@ func loadParams(c *cli.Command) (*Params, error) {
 
 	if apiUrl == "" {
 		return nil, fmt.Errorf("Step API URL is required")
+	}
+
+	if !strings.HasPrefix(scepPath, "/") {
+		return nil, fmt.Errorf("SCEP path must start with a leading slash '/'")
+	}
+
+	if !strings.HasPrefix(crlPath, "/") {
+		return nil, fmt.Errorf("CRL path must start with a leading slash '/'")
 	}
 
 	if provisionerName == "" {
@@ -197,7 +207,6 @@ func loadParams(c *cli.Command) (*Params, error) {
 		ClientID:        clientID,
 		ClientSecret:    clientSecret,
 		Port:            port,
-		ScepPath:        "/" + strings.TrimLeft(scepPath, "/"),
 		CaCrt:           caCrt,
 		RaCrt:           raCrt,
 		RaKey:           raKey,
@@ -205,6 +214,8 @@ func loadParams(c *cli.Command) (*Params, error) {
 		JWK:             jwk,
 		APIURL:          apiUrl,
 		ProvisionerName: provisionerName,
+		ScepPath:        "/" + strings.TrimLeft(scepPath, "/"),
+		CRLPath:         "/" + strings.TrimLeft(crlPath, "/"),
 		DBPath:          dbPath,
 	}, nil
 }

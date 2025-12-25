@@ -15,6 +15,7 @@ import (
 
 type Signer interface {
 	SignCSR(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, error)
+	GetCRL(ctx context.Context) (*x509.RevocationList, error)
 }
 
 type Verifier interface {

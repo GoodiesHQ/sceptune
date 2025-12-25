@@ -49,10 +49,24 @@ func run(ctx context.Context, c *cli.Command) error {
 		certStore,
 	)
 
-	limiter := rate.NewLimiter(rate.Limit(5), 25)
-
+	perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
 	scepPathWindows := path.Join(params.ScepPath, "pkiclient.exe")
-	mux.Handle(scepPathWindows, rateLimitMiddleware(limiter)(srvWin))
+
+	// Windows SCEP clients
+	mux.Handle(scepPathWindows, perIP(srvWin))
+
+	// CRL endpoint
+	mux.Handle(params.CRLPath, perIP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		crl, err := clientStep.GetCRL(r.Context())
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get CRL: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/pkix-crl")
+		w.WriteHeader(http.StatusOK)
+		w.Write(crl.Raw)
+	})))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

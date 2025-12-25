@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 )
 
 func PostJson(ctx context.Context, client *http.Client, url string, headers map[string]string, reqObj, resObj any) (*http.Request, int, http.Header, []byte, error) {
@@ -61,4 +63,26 @@ func PostJson(ctx context.Context, client *http.Client, url string, headers map[
 	}
 
 	return req, res.StatusCode, res.Header, resBytes, fmt.Errorf("unexpected status code %d", res.StatusCode)
+}
+
+func GetRequestSourceIP(r *http.Request) string {
+	// Check X-Forwarded-For header
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
+	// Check X-Real-IP header
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		return strings.TrimSpace(xrip)
+	}
+
+	// Use the remote address as a fallback
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+
+	return r.RemoteAddr
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ type StepClient struct {
 	jwk             jose.SigningKey
 	client          *ca.Client
 	kid             string
+	httpClient      *http.Client
 }
 
 func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSONWebKey) (*StepClient, error) {
@@ -40,14 +43,12 @@ func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSON
 	}
 
 	apiUrl = strings.TrimRight(apiUrl, "/")
-	
+
 	// Create Step CA client
-	// TODO: Remove WithInsecure() and properly handle TLS verification
 	client, err := ca.NewClient(
 		apiUrl,
-		// ca.WithRootSHA256(caFingerprint),
-		ca.WithInsecure(),
-		ca.WithTimeout(30*time.Second),
+		ca.WithRootSHA256(caFingerprint),
+		ca.WithTimeout(10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Step CA client: %w", err)
@@ -60,7 +61,41 @@ func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSON
 		client:          client,
 		kid:             jwk.KeyID,
 		jwk:             jose.SigningKey{Algorithm: jose.ES256, Key: jwk.Key},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	}, nil
+}
+
+func (c *StepClient) GetCRL(ctx context.Context) (*x509.RevocationList, error) {
+	url := c.apiUrl + "/1.0/crl"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CRL request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send CRL request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get CRL: %s", res.Status)
+	}
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CRL response: %w", err)
+	}
+
+	crl, err := x509.ParseRevocationList(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CRL: %w", err)
+	}
+
+	return crl, nil
 }
 
 func (c *StepClient) CreateToken(subject string, sans []string) (string, error) {

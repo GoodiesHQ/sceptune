@@ -139,6 +139,13 @@ var App = cli.Command{
 			Sources: cli.EnvVars("SCEPTUNE_SCEP_PATH"),
 		},
 		&cli.StringFlag{
+			Name: "crl-path",
+			Usage: "The URL path to serve the CRL from Step CA. " +
+				"Can also be set via the SCEPTUNE_CRL_PATH environment variable.",
+			Value:   "/crl",
+			Sources: cli.EnvVars("SCEPTUNE_CRL_PATH"),
+		},
+		&cli.StringFlag{
 			Name: "database-path",
 			Usage: "Path to the SQLite database file for storing certificate records. " +
 				"Can also be set via the SCEPTUNE_DATABASE_PATH environment variable.",

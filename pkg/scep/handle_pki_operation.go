@@ -52,8 +52,7 @@ func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Re
 	// case scep.RenewalReq, scep.UpdateReq:
 	// s.handleRenewalRequest(w, r, msg)
 	case scep.GetCRL:
-		s.log.Error().Msg("GetCRL not implemented")
-		http.Error(w, "GetCRL not implemented", http.StatusNotImplemented)
+		s.handleGetCRL(w, r)
 	case scep.GetCert:
 		s.log.Error().Msg("GetCert not implemented")
 		http.Error(w, "GetCert not implemented", http.StatusNotImplemented)
@@ -318,4 +317,20 @@ func validateCsr(csr *x509.CertificateRequest) error {
 	}
 
 	return nil
+}
+
+func (s *SCEPServerWindows) handleGetCRL(w http.ResponseWriter, r *http.Request) {
+	s.log.Info().Msg("Handling GetCRL Request")
+
+	// Get the CRL from the Step client
+	crl, err := s.signer.GetCRL(r.Context())
+	if err != nil {
+		s.log.Error().Err(err).Msg("Error getting CRL from Step client")
+		http.Error(w, "Failed to get CRL", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pkix-crl")
+	w.WriteHeader(http.StatusOK)
+	w.Write(crl.Raw)
 }

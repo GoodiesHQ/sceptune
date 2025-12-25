@@ -14,6 +14,8 @@ require (
 	github.com/smallstep/pkcs7 v0.2.1
 	github.com/smallstep/scep v0.0.0-20250318231241-a25cabb69492
 	github.com/urfave/cli/v3 v3.6.1
+	golang.org/x/time v0.14.0
+	modernc.org/sqlite v1.41.0
 )
 
 require (
@@ -127,5 +129,4 @@ require (
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.41.0 // indirect
 )
