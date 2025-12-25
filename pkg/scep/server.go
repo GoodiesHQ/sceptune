@@ -5,6 +5,8 @@ import (
 	"crypto"
 	"crypto/x509"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -25,16 +27,20 @@ type Store interface {
 	StoreCert(csr, txid string, cert *x509.Certificate) error
 	GetCert(csr, txid string) (*x509.Certificate, bool, error)
 	MarkIntuneNotified(csr, txid string) (bool, error)
+	PurgeExpired() (int64, error)
+	Close() error
 }
 
 type SCEPServerWindows struct {
-	raCrt    *x509.Certificate
-	raKey    crypto.PrivateKey
-	caChain  []*x509.Certificate
-	log      zerolog.Logger
-	signer   Signer
-	verifier Verifier
-	store    Store
+	raCrt     *x509.Certificate
+	raKey     crypto.PrivateKey
+	caChain   []*x509.Certificate
+	log       zerolog.Logger
+	signer    Signer
+	verifier  Verifier
+	store     Store
+	muPurge   sync.Mutex
+	isPurging bool
 }
 
 // NewSCEPServerWindows creates a new SCEP server instance
@@ -48,6 +54,45 @@ func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caC
 		store:    store,
 		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
 	}
+}
+
+func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
+	s.muPurge.Lock()
+	if s.isPurging {
+		s.muPurge.Unlock()
+		return
+	}
+	s.isPurging = true
+	s.muPurge.Unlock()
+
+	go func() {
+		// Purge expired certificates every hour
+		timer := time.NewTicker(time.Hour)
+		defer func() {
+			timer.Stop()
+			s.muPurge.Lock()
+			s.isPurging = false
+			s.muPurge.Unlock()
+		}()
+
+		// Initial purge immediately
+		_, err := s.store.PurgeExpired()
+		if err != nil {
+			s.log.Error().Err(err).Msg("Error purging expired certificates")
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				_, err := s.store.PurgeExpired()
+				if err != nil {
+					s.log.Error().Err(err).Msg("Error purging expired certificates")
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // ServeHTTP implements the http.Handler interface
@@ -72,7 +117,7 @@ func (s *SCEPServerWindows) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // logCSRDetails logs detailed information about the CSR
 func (s *SCEPServerWindows) logCSRDetails(csr *x509.CertificateRequest) {
-	s.log.Debug().
+	s.log.Trace().
 		Str("subject_common_name", csr.Subject.CommonName).
 		Strs("subject_organization", csr.Subject.Organization).
 		Strs("subject_organizational_unit", csr.Subject.OrganizationalUnit).

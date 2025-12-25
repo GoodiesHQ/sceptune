@@ -97,14 +97,14 @@ var App = cli.Command{
 		&cli.StringFlag{
 			Name:      "json-web-key-file",
 			TakesFile: true,
-			Aliases:   []string{"jwk"},
+			Aliases:   []string{"jwk", "jwk-file"},
 			Usage: "Path to the JSON Web Key (JWK) file for signing SCEP responses. " +
 				"Can also be set via the SCEPTUNE_JSON_WEB_KEY_FILE environment variable.",
 			Sources: cli.EnvVars("SCEPTUNE_JSON_WEB_KEY_FILE"),
 		},
 		&cli.StringFlag{
 			Name:    "json-web-key-password",
-			Aliases: []string{"jwk"},
+			Aliases: []string{"jwk-password"},
 			Usage: "Path to the JSON Web Key (JWK) file for signing SCEP responses. " +
 				"Can also be set via the SCEPTUNE_JSON_WEB_KEY_PASSWORD environment variable.",
 			Sources: cli.EnvVars("SCEPTUNE_JSON_WEB_KEY_PASSWORD"),
@@ -112,7 +112,7 @@ var App = cli.Command{
 		&cli.StringFlag{
 			Name:      "json-web-key-password-file",
 			TakesFile: true,
-			Aliases:   []string{"jwk"},
+			Aliases:   []string{"jwk-password-file"},
 			Usage: "Path to the JSON Web Key (JWK) password file for signing SCEP responses. " +
 				"Can also be set via the SCEPTUNE_JSON_WEB_KEY_PASSWORD_FILE environment variable.",
 			Sources: cli.EnvVars("SCEPTUNE_JSON_WEB_KEY_PASSWORD_FILE"),

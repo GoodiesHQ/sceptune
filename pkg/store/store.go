@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
 )
 
@@ -52,6 +53,9 @@ func NewCertificateStore(path string) (*CertificateStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(1 * time.Hour)
 
 	if err := createTables(db); err != nil {
 		db.Close()
@@ -71,7 +75,7 @@ func (cs *CertificateStore) StoreCert(csr, txid string, crt *x509.Certificate) e
 	id := utils.CreateDBID(csr, txid)
 
 	_, err := cs.db.Exec(`
-		INSERT INTO certificates (
+		INSERT OR REPLACE INTO certificates (
 			id, transaction_id, certificate_signing_request, certificate, expiration, intune_notified
 		) VALUES (
 		 ?, ?, ?, ?, ?, ?
@@ -184,6 +188,13 @@ func (cs *CertificateStore) PurgeExpired() (int64, error) {
 	count, err := result.RowsAffected()
 	if err != nil {
 		return 0, err
+	}
+
+	// check number of rows affected
+	if count == 0 {
+		log.Debug().Msg("No expired certificates found to purge")
+	} else {
+		log.Info().Int64("count", count).Msg("Purged expired certificates")
 	}
 
 	return count, nil

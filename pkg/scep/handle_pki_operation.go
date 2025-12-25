@@ -1,10 +1,13 @@
 package scep
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/goodieshq/sceptune/pkg/ms"
 	"github.com/goodieshq/sceptune/pkg/utils"
@@ -46,6 +49,8 @@ func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Re
 	switch msg.MessageType {
 	case scep.PKCSReq, scep.RenewalReq, scep.UpdateReq:
 		s.handleCSRRequest(w, r, msg)
+	// case scep.RenewalReq, scep.UpdateReq:
+	// s.handleRenewalRequest(w, r, msg)
 	case scep.GetCRL:
 		s.log.Error().Msg("GetCRL not implemented")
 		http.Error(w, "GetCRL not implemented", http.StatusNotImplemented)
@@ -78,19 +83,29 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Extract CSR and challenge password
-	if msg.CSRReqMessage == nil {
+	if msg.CSRReqMessage == nil || msg.CSRReqMessage.CSR == nil {
 		s.log.Error().Msg("No CSR request message found")
 		s.sendFailureResponse(w, msg, scep.BadRequest)
 		return
 	}
 
-	// Verify the CSR with Intune
 	csr := msg.CSRReqMessage.CSR
 	challenge := msg.CSRReqMessage.ChallengePassword
-	s.logCSRDetails(csr) // Log CSR details for debugging, TODO: disable in production
+
+	// Validate CSR
+	if err := validateCsr(csr); err != nil {
+		s.log.Error().Err(err).Msg("Invalid CSR")
+		s.sendFailureResponse(w, msg, scep.BadRequest)
+		return
+	}
+
+	// Log CSR details for debugging
+	s.logCSRDetails(csr)
+
 	csrBase64 := base64.StdEncoding.EncodeToString(csr.Raw)
 	dbid := utils.CreateDBID(csrBase64, challenge)
 
+	// Check if certificate already exists in store
 	crt, notified, err := s.store.GetCert(csrBase64, challenge)
 	if err != nil {
 		s.log.Error().Err(err).Msg("Error checking existing certificate in store")
@@ -98,98 +113,209 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if crt != nil {
-		// Certificate already exists, notify Intune
-		s.log.Info().Msg("Certificate already exists in store, notifying Intune.")
-		msgCrt, err := msg.Success(s.raCrt, s.raKey, crt)
-		if err != nil {
-			s.log.Error().Err(err).Msg("Error creating success response from existing cert")
-			s.sendFailureResponse(w, msg, scep.BadRequest)
-			return
-		}
+	var msgCrt *scep.PKIMessage = nil
 
-		if !notified {
-			if err := s.verifier.NotifySuccess(r.Context(), csrBase64, challenge, crt, s.caChain[0]); err == nil {
+	if crt != nil {
+		// Certificate already exists
+		sn := crt.SerialNumber.Text(16)
+
+		s.log.Info().Str("serial_number", sn).Msg("Certificate already exists in store")
+
+		// Check if the existing certificate is expired
+		if time.Now().After(crt.NotAfter) {
+			s.log.Warn().
+				Str("serial_number", sn).
+				Str("dbid", dbid).
+				Msg("Existing certificate is expired, treating as a new request")
+			crt = nil
+			notified = false
+		} else {
+			// Existing valid certificate found
+
+			if !notified {
+				if err := s.verifier.NotifySuccess(r.Context(), csrBase64, challenge, crt, s.caChain[0]); err != nil {
+					// Intune notification failed, log and send failure response
+					s.log.Error().Err(err).
+						Str("serial_number", sn).
+						Str("dbid", dbid).
+						Msg("Error notifying Intune of existing certificate")
+					s.sendFailureResponse(w, msg, scep.BadRequest)
+					return
+				}
+
+				// Mark as notified in the certificate store
 				_, err := s.store.MarkIntuneNotified(csrBase64, challenge)
 				if err != nil {
-					s.log.Warn().Err(err).Msg("Error marking certificate as notified in store")
+					s.log.Warn().Err(err).
+						Str("serial_number", sn).
+						Str("dbid", dbid).
+						Msg("Error marking certificate as notified in store")
 				}
-				w.Header().Set("Content-Type", "application/x-pki-message")
-				w.WriteHeader(http.StatusOK)
-				w.Write(msgCrt.Raw)
-				s.log.Info().Msgf("Returned existing certificate for DBID %s", dbid)
+			}
+
+			// Create success response with existing certificate
+			msgCrt, err = msg.Success(s.raCrt, s.raKey, crt)
+			if err != nil {
+				s.log.Error().Err(err).
+					Str("serial_number", sn).
+					Str("dbid", dbid).
+					Msg("Error creating success response from existing cert")
+				s.sendFailureResponse(w, msg, scep.BadRequest)
 				return
 			}
-			s.log.Error().Err(err).Msg("Error notifying Intune of existing certificate")
+		}
+	}
+	if crt == nil {
+		// New CSR, proceed with verification
+
+		// Verify CSR and challenge (with Intune API)
+		valid, err := s.verifier.VerifyCSR(r.Context(), csrBase64, challenge)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Error verifying CSR with Intune")
 			s.sendFailureResponse(w, msg, scep.BadRequest)
 			return
 		}
 
-		// Already notified, just return the certificate
-		w.Header().Set("Content-Type", "application/x-pki-message")
-		w.WriteHeader(http.StatusOK)
-		w.Write(msgCrt.Raw)
-		s.log.Info().Msgf("Returned existing certificate for DBID %s", dbid)
-		return
-	}
+		// Invalid CSR/Challenge combination
+		if !valid {
+			s.log.Warn().Msg("CSR verification failed for Transaction ID.")
+			s.sendFailureResponse(w, msg, scep.BadRequest)
+			return
+		}
 
-	// Verify CSR (with Intune API)
-	valid, err := s.verifier.VerifyCSR(r.Context(), csrBase64, challenge)
-	if err != nil {
-		s.log.Error().Err(err).Msg("Error verifying CSR with Intune")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
+		// From this point on, all failues must be reported back to Intune
 
-	// Invalid CSR/Challenge combination
-	if !valid {
-		s.log.Warn().Msg("CSR verification failed for Transaction ID.")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
+		s.log.Info().Msg("CSR/Challenge verified successfully.")
 
-	// From this point on, all failues must be reported back to Intune
+		// Sign the CSR
+		signedCrt, err := s.signer.SignCSR(r.Context(), csr)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Error signing CSR")
+			s.verifier.NotifyFailure(r.Context(), csrBase64, challenge, ms.HResultCAUnavailable, "Certificate Authority Unavailable")
+			s.sendFailureResponse(w, msg, scep.BadRequest)
+			return
+		}
+		sn := signedCrt.SerialNumber.Text(16)
 
-	s.log.Info().Msg("CSR/Challenge verified successfully.")
+		// Store the signed certificate
+		if err := s.store.StoreCert(csrBase64, challenge, signedCrt); err != nil {
+			s.log.Warn().Err(err).
+				Str("serial_number", sn).
+				Str("dbid", dbid).
+				Msg("Error storing signed certificate")
+		}
 
-	// Sign the CSR
-	signedCrt, err := s.signer.SignCSR(r.Context(), csr)
-	if err != nil {
-		s.log.Error().Err(err).Msg("Error signing CSR")
-		s.verifier.NotifyFailure(r.Context(), csrBase64, challenge, ms.HResultCAUnavailable, "Certificate Authority Unavailable")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
+		// Notify Intune of success, if notification fails, do not send cert to client
+		err = s.verifier.NotifySuccess(r.Context(), csrBase64, challenge, signedCrt, s.caChain[0])
+		if err != nil {
+			s.log.Error().Err(err).
+				Str("serial_number", sn).
+				Str("dbid", dbid).
+				Msg("Error notifying Intune of successful CSR signing, not sending response to client")
+			s.sendFailureResponse(w, msg, scep.BadRequest)
+			return
+		}
 
-	// Notify Intune of success
-	err = s.verifier.NotifySuccess(r.Context(), csrBase64, challenge, signedCrt, s.caChain[0])
-	if err != nil {
-		s.log.Error().Err(err).Msg("Error notifying Intune of successful CSR signing, not sending response to client")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
+		// Mark as notified in the certificate store
+		_, err = s.store.MarkIntuneNotified(csrBase64, challenge)
+		if err != nil {
+			s.log.Warn().Err(err).
+				Str("serial_number", sn).
+				Str("dbid", dbid).
+				Msg("Error marking certificate as notified in store")
+		}
 
-	// Store the signed certificate
-	if err := s.store.StoreCert(csrBase64, challenge, signedCrt); err != nil {
-		s.log.Warn().Err(err).Msg("Error storing signed certificate")
-	}
-
-	pem := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: signedCrt.Raw,
-	})
-	s.log.Info().Str("pem", string(pem)).Msg("CSR signed successfully.")
-
-	// Create success response
-	certRep, err := msg.Success(s.raCrt, s.raKey, signedCrt)
-	if err != nil {
-		s.log.Error().Err(err).Msg("Error creating a success response from new cert")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
+		// Create success response
+		msgCrt, err = msg.Success(s.raCrt, s.raKey, signedCrt)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Error creating a success response from new cert")
+			s.verifier.NotifyFailure(r.Context(), csrBase64, challenge, ms.HResultFail, "Certificate Processing Error")
+			s.sendFailureResponse(w, msg, scep.BadRequest)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/x-pki-message")
 	w.WriteHeader(http.StatusOK)
-	w.Write(certRep.Raw)
+	w.Write(msgCrt.Raw)
 	s.log.Info().Msgf("Returned signed certificate for DBID %s", dbid)
+}
+
+// handleRenewalRequest processes a certificate renewal request
+func (s *SCEPServerWindows) handleRenewalRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
+	s.log.Info().Msg("Handling Renewal/Update Request")
+
+	// Verify the signer certificate
+	if msg.SignerCert == nil {
+		s.log.Error().Msg("No signer certificate found in renewal request")
+		s.sendFailureResponse(w, msg, scep.BadRequest)
+		return
+	}
+
+	signerSerialNumber := msg.SignerCert.SerialNumber.Text(16)
+	signerSubject := msg.SignerCert.Subject.CommonName
+
+	s.log.Debug().
+		Str("signer_serial", signerSerialNumber).
+		Str("signer_subject", signerSubject).
+		Time("signer_not_after", msg.SignerCert.NotAfter).
+		Msg("Verifying renewal signer certificate")
+
+	// Verify the signer certificate is issued by our CA
+	opts := x509.VerifyOptions{
+		Roots:     x509.NewCertPool(),
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+	for _, cert := range s.caChain {
+		opts.Roots.AddCert(cert)
+	}
+
+	if _, err := msg.SignerCert.Verify(opts); err != nil {
+		s.log.Error().Err(err).Msg("Error verifying signer certificate in renewal request")
+		s.sendFailureResponse(w, msg, scep.BadRequest)
+		return
+	}
+	s.log.Info().
+		Str("signer_serial", signerSerialNumber).
+		Str("signer_subject", signerSubject).
+		Msg("Signer certificate verified successfully for renewal request")
+
+	// Handle the CSR request as usual
+	s.handleCSRRequest(w, r, msg)
+}
+
+func validateCsr(csr *x509.CertificateRequest) error {
+	if csr == nil {
+		return fmt.Errorf("CSR is nil")
+	}
+
+	// Check CSR signature validity
+	if err := csr.CheckSignature(); err != nil {
+		return fmt.Errorf("invalid CSR signature: %w", err)
+	}
+
+	// Check CSR signature algorithm
+	switch csr.SignatureAlgorithm {
+	case x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA,
+		x509.ECDSAWithSHA256, x509.ECDSAWithSHA384, x509.ECDSAWithSHA512:
+		// Supported algorithms
+	default:
+		return fmt.Errorf("unsupported CSR signature algorithm: %s", csr.SignatureAlgorithm)
+	}
+
+	// Check key size for RSA
+	if csr.PublicKeyAlgorithm == x509.RSA {
+		if rsaPubKey, ok := csr.PublicKey.(*rsa.PublicKey); ok {
+			if rsaPubKey.N.BitLen() < 2048 {
+				return fmt.Errorf("RSA key size is too small: %d bits", rsaPubKey.N.BitLen())
+			}
+		}
+	}
+
+	// Check CSR subject
+	if csr.Subject.CommonName == "" {
+		return fmt.Errorf("CSR subject common name is empty")
+	}
+
+	return nil
 }

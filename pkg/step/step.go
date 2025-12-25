@@ -25,18 +25,24 @@ type StepClient struct {
 }
 
 func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSONWebKey) (*StepClient, error) {
+	// Validate Step CA API URL
 	url, err := url.Parse(apiUrl)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Step CA API URL: %w", err)
 	}
 
+	// Only HTTP and HTTPS schemes are supported
 	if url.Scheme != "http" && url.Scheme != "https" {
 		return nil, fmt.Errorf("invalid Step CA API URL: unsupported scheme %q", url.Scheme)
 	}
 	if url.Host == "" {
 		return nil, fmt.Errorf("invalid Step CA API URL: missing host")
 	}
+
 	apiUrl = strings.TrimRight(apiUrl, "/")
+	
+	// Create Step CA client
+	// TODO: Remove WithInsecure() and properly handle TLS verification
 	client, err := ca.NewClient(
 		apiUrl,
 		// ca.WithRootSHA256(caFingerprint),
@@ -62,6 +68,7 @@ func (c *StepClient) CreateToken(subject string, sans []string) (string, error) 
 	nowMinus30 := now.Add(-30 * time.Second) // allow for clock skew
 	nowPlus300 := now.Add(5 * time.Minute)   // token valid for 5 minutes
 
+	// Create basic JWT claims
 	claims := jwt.Claims{
 		Issuer:    c.provisionerName,
 		Subject:   subject,
@@ -72,18 +79,21 @@ func (c *StepClient) CreateToken(subject string, sans []string) (string, error) 
 		ID:        utils.GenerateActivityID(),
 	}
 
+	// Add custom Step CA claims
 	type stepClaims struct {
 		jwt.Claims
 		SHA  string   `json:"sha"`
 		SANs []string `json:"sans,omitempty"`
 	}
 
+	// Combine standard and custom claims
 	fullClaims := stepClaims{
 		Claims: claims,
 		SHA:    c.caFingerprint,
 		SANs:   sans,
 	}
 
+	// Create JWT signer using the JWK
 	signerOpts := &jose.SignerOptions{}
 	signerOpts.WithHeader("kid", c.kid)
 
@@ -92,6 +102,7 @@ func (c *StepClient) CreateToken(subject string, sans []string) (string, error) 
 		return "", fmt.Errorf("failed to create JWT signer: %w", err)
 	}
 
+	// Sign and serialize the JWT
 	token, err := jwt.Signed(signer).Claims(fullClaims).Serialize()
 	if err != nil {
 		return "", fmt.Errorf("failed to sign JWT: %w", err)
@@ -105,27 +116,33 @@ func (c *StepClient) SignCSR(ctx context.Context, csr *x509.CertificateRequest) 
 		return nil, fmt.Errorf("CSR signature verification failed: %w", err)
 	}
 
+	// Extract subject and SANs from CSR
 	subject := csr.Subject.CommonName
 	sans := utils.ExtractSANsFromCSR(csr)
 
+	// Create JWT token for Step CA, signed with the JWK
 	token, err := c.CreateToken(subject, sans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token: %w", err)
 	}
 
+	// Create sign request to Step CA
 	signRequest := &api.SignRequest{
 		CsrPEM: api.NewCertificateRequest(csr),
 		OTT:    token,
 	}
 
+	// Sign the CSR with Step CA
 	signResponse, err := c.client.SignWithContext(ctx, signRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign CSR with Step CA: %w", err)
 	}
 
+	// Verify that a certificate was returned
 	if signResponse.ServerPEM.Certificate == nil {
 		return nil, fmt.Errorf("no certificate returned from Step CA")
 	}
 
+	// Return the signed certificate
 	return signResponse.ServerPEM.Certificate, nil
 }
