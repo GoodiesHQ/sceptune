@@ -8,49 +8,31 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goodieshq/sceptune/internal/utils"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/smallstep/scep"
 )
-
-type Signer interface {
-	SignCSR(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, error)
-	GetCRL(ctx context.Context) (*x509.RevocationList, error)
-}
-
-type Verifier interface {
-	VerifyCSR(ctx context.Context, csr string, txid string) (bool, error)
-	NotifyFailure(ctx context.Context, csr, txid string, hResult int64, errorDescription string) error
-	NotifySuccess(ctx context.Context, csr, txid string, crt, root *x509.Certificate) error
-}
-
-type Store interface {
-	StoreCert(csr, txid string, cert *x509.Certificate) error
-	GetCert(csr, txid string) (*x509.Certificate, bool, error)
-	MarkIntuneNotified(csr, txid string) (bool, error)
-	PurgeExpired() (int64, error)
-	Close() error
-}
 
 type SCEPServerWindows struct {
 	raCrt     *x509.Certificate
 	raKey     crypto.PrivateKey
 	caChain   []*x509.Certificate
 	log       zerolog.Logger
-	signer    Signer
-	verifier  Verifier
-	store     Store
+	signer    utils.Signer
+	verifier  utils.Verifier
+	store     utils.Store
 	muPurge   sync.Mutex
 	isPurging bool
 }
 
 // NewSCEPServerWindows creates a new SCEP server instance
-func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate, msClient Verifier, signer Signer, store Store) *SCEPServerWindows {
+func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate, verifier utils.Verifier, signer utils.Signer, store utils.Store) *SCEPServerWindows {
 	return &SCEPServerWindows{
 		raCrt:    raCert,
 		raKey:    raKey,
 		caChain:  caChain,
-		verifier: msClient,
+		verifier: verifier,
 		signer:   signer,
 		store:    store,
 		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
@@ -98,7 +80,6 @@ func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
 
 // ServeHTTP implements the http.Handler interface
 func (s *SCEPServerWindows) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
 	// Parse operation from query parameters
 	operation := r.URL.Query().Get("operation")
 	s.log.Debug().Str("operation", operation).Str("remote_addr", r.RemoteAddr).Msgf("Received %s request", r.Method)

@@ -3,7 +3,7 @@ package scep
 import (
 	"net/http"
 
-	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/goodieshq/sceptune/internal/utils"
 )
 
 // handleGetCACert handles the SCEP GetCACert operation and returns the CA certificate bundle

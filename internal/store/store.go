@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/goodieshq/sceptune/internal/utils"
 	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
 )

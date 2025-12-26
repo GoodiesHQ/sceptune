@@ -12,3 +12,4 @@
 *.db-wal
 
 ca/
+dist/

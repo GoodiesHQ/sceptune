@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/goodieshq/sceptune/internal/utils"
 	"golang.org/x/time/rate"
 )
 

@@ -4,20 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/goodieshq/sceptune/pkg/ms"
-	"github.com/goodieshq/sceptune/pkg/scep"
-	"github.com/goodieshq/sceptune/pkg/step"
-	"github.com/goodieshq/sceptune/pkg/store"
-	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/goodieshq/sceptune/internal/ms"
+	"github.com/goodieshq/sceptune/internal/step"
+	"github.com/goodieshq/sceptune/internal/store"
+	"github.com/goodieshq/sceptune/internal/utils"
 	"github.com/rs/zerolog/log"
 )
 
-func initialize(ctx context.Context, params *Params) (scep.Verifier, scep.Signer, scep.Store, error) {
+func initialize(ctx context.Context, params *Params) (utils.Verifier, utils.Signer, utils.Store, error) {
 	// Create a microsoft client to interact with Graph and Intune APIs
 	msClient, err := ms.NewMSClient(
-		params.TenantID,
-		params.ClientID,
-		params.ClientSecret,
+		params.IntuneTenantID,
+		params.IntuneClientID,
+		params.IntuneClientSecret,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create MS client: %w", err)
@@ -35,10 +34,10 @@ func initialize(ctx context.Context, params *Params) (scep.Verifier, scep.Signer
 
 	// Create a Step client to sign CSRs
 	stepClient, err := step.NewStepClient(
-		params.APIURL,
-		params.ProvisionerName,
-		utils.FingerprintSha256(params.CaCrt),
-		params.JWK,
+		params.StepApiUrl,
+		params.StepProvisionerName,
+		utils.FingerprintSha256(params.RootCaCrt),
+		params.StepJWK,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create Step client: %w", err)
@@ -46,7 +45,7 @@ func initialize(ctx context.Context, params *Params) (scep.Verifier, scep.Signer
 	log.Info().Msg("[+] Initialized Step client for signing CSRs")
 
 	// Create a data store for issued certificates
-	certStore, err := store.NewCertificateStore(params.DBPath)
+	certStore, err := store.NewCertificateStore(params.DatabasePath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to initialize certificate store: %w", err)
 	}

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/goodieshq/sceptune/pkg/ms"
-	"github.com/goodieshq/sceptune/pkg/utils"
+	"github.com/goodieshq/sceptune/internal/ms"
+	"github.com/goodieshq/sceptune/internal/utils"
 	"github.com/smallstep/scep"
 )
 

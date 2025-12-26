@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path"
 	"time"
 
-	"github.com/goodieshq/sceptune/pkg/scep"
+	"github.com/go-chi/chi/v5"
+	"github.com/goodieshq/sceptune/internal/crl"
+	"github.com/goodieshq/sceptune/internal/scep"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -22,64 +23,40 @@ func run(ctx context.Context, c *cli.Command) error {
 		log.Debug().Msg("Enabled verbose logging output")
 	}
 
+	// load the configuration parameters from CLI flags
 	params, err := loadParams(c)
 	if err != nil {
 		return err
 	}
 
 	// create and start the SCEP server
-	mux := http.NewServeMux()
+	mux := chi.NewMux()
 
 	// TODO: implement SCEP server for non-Windows platforms
-
-	msClient, clientStep, certStore, err := initialize(ctx, params)
+	clientMS, clientStep, certStore, err := initialize(ctx, params)
 	if err != nil {
 		return err
 	}
 
-	log.Info().Msg("======= SCEP Server Configuration Complete =======")
-
 	// Create a SCEP server for Windows Intune clients
-	srvWin := scep.NewSCEPServerWindows(
-		params.RaCrt,
-		params.RaKey,
-		params.CaChain,
-		msClient,
-		clientStep,
-		certStore,
-	)
+	scepServerWin := scep.NewSCEPServerWindows(params.RaCrt, params.RaKey,
+		params.CaChain, clientMS, clientStep, certStore)
 
+	// Create a CRL server backed by the Step CA server
+	crlServer := crl.NewCrlServer(clientStep)
+
+	// Rate limit middleware
 	perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
-	scepPathWindows := path.Join(params.ScepPath, "pkiclient.exe")
 
-	// Windows SCEP clients
-	mux.Handle(scepPathWindows, perIP(srvWin))
+	mux.Route(params.ScepPath, func(r chi.Router) {
+		// Handlers for Windows SCEP clients
+		r.Get("/pkiclient.exe", perIP(scepServerWin).ServeHTTP)
+		r.Post("/pkiclient.exe", perIP(scepServerWin).ServeHTTP)
+	})
 
 	// CRL endpoint
-	mux.Handle(params.CRLPath, perIP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		crl, err := clientStep.GetCRL(r.Context())
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to get CRL: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/pkix-crl")
-		w.WriteHeader(http.StatusOK)
-		w.Write(crl.Raw)
-	})))
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Simple text-only landing page
-		fmt.Fprintf(w, "SCEP Server Running\n")
-		fmt.Fprintf(w, "SCEP Endpoint (Windows): %s? operation=<operation>\n", scepPathWindows)
-		fmt.Fprintf(w, "  - GetCACaps\n")
-		fmt.Fprintf(w, "  - GetCACert\n")
-		fmt.Fprintf(w, "  - PKIOperation\n")
+	mux.Route(params.CRLPath, func(r chi.Router) {
+		r.Get("/", perIP(crlServer).ServeHTTP)
 	})
 
 	httpServer := &http.Server{
@@ -103,7 +80,8 @@ func run(ctx context.Context, c *cli.Command) error {
 		httpServer.Shutdown(ctxShutdown)
 	}()
 
-	srvWin.StartPurging(ctx)
+	// Start purging revoked certificates
+	scepServerWin.StartPurging(ctx)
 
 	log.Info().Str("address", httpServer.Addr).Msg("Starting SCEP server...")
 	err = httpServer.ListenAndServe()
