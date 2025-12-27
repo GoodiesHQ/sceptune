@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/smallstep/scep"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type SCEPServerWindows struct {
@@ -35,20 +38,38 @@ func NewSCEPServerWindows(
 	verifier utils.Verifier, signer utils.Signer, store utils.Store,
 	complianceRequired, complianceAllowGrace bool, intuneCnType utils.IntuneCnType) *SCEPServerWindows {
 	return &SCEPServerWindows{
-		raCrt:    raCert,
-		raKey:    raKey,
-		caChain:  caChain,
-		verifier: verifier,
-		signer:   signer,
-		store:    store,
-		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
-		intuneCnType: 	   intuneCnType,
+		raCrt:                raCert,
+		raKey:                raKey,
+		caChain:              caChain,
+		verifier:             verifier,
+		signer:               signer,
+		store:                store,
+		log:                  log.Logger.With().Str("component", "scep_windows").Logger(),
+		intuneCnType:         intuneCnType,
 		complianceRequired:   complianceRequired,
 		complianceAllowGrace: complianceAllowGrace,
 	}
 }
 
+func isErrorBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var liteErr *sqlite.Error
+	if errors.As(err, &liteErr) {
+		// Check if the error code is SQLITE_BUSY (which has a value of 5)
+		if liteErr.Code() == sqlite3.SQLITE_BUSY {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
+	const retries = 3
+	const backoffDefault = time.Millisecond * 100
+
 	s.muPurge.Lock()
 	if s.isPurging {
 		s.muPurge.Unlock()
@@ -67,18 +88,20 @@ func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
 			s.muPurge.Unlock()
 		}()
 
-		// Initial purge immediately
-		_, err := s.store.PurgeExpired()
-		if err != nil {
-			s.log.Error().Err(err).Msg("Error purging expired certificates")
-		}
-
 		for {
 			select {
 			case <-timer.C:
-				_, err := s.store.PurgeExpired()
-				if err != nil {
-					s.log.Error().Err(err).Msg("Error purging expired certificates")
+				var backoff = backoffDefault
+				for range retries {
+					_, err := s.store.PurgeExpired(ctx)
+					if err != nil {
+						if isErrorBusy(err) {
+							<-time.After(backoff)
+							backoff *= 2
+							continue
+						}
+						s.log.Error().Err(err).Msg("Error purging expired certificates")
+					}
 				}
 			case <-ctx.Done():
 				return

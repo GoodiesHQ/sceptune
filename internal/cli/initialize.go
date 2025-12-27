@@ -49,7 +49,7 @@ func initialize(ctx context.Context, params *Params) (utils.Verifier, utils.Sign
 	log.Info().Msg("[+] Initialized Step client for signing CSRs")
 
 	// Create a data store for issued certificates
-	certStore, err := store.NewCertificateStore(params.DatabasePath)
+	certStore, err := store.NewCertificateStore(ctx, params.DatabasePath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to initialize certificate store: %w", err)
 	}

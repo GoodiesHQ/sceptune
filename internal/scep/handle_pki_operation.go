@@ -105,7 +105,7 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 	dbid := utils.CreateDBID(csrBase64, challenge)
 
 	// Check if certificate already exists in store
-	crt, notified, err := s.store.GetCert(csrBase64, challenge)
+	crt, notified, err := s.store.GetCert(r.Context(), csrBase64, challenge)
 	if err != nil {
 		s.log.Error().Err(err).Msg("Error checking existing certificate in store")
 		s.sendFailureResponse(w, msg, scep.BadRequest)
@@ -143,7 +143,7 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 				}
 
 				// Mark as notified in the certificate store
-				_, err := s.store.MarkIntuneNotified(csrBase64, challenge)
+				_, err := s.store.MarkIntuneNotified(r.Context(), csrBase64, challenge)
 				if err != nil {
 					s.log.Warn().Err(err).
 						Str("serial_number", sn).
@@ -225,7 +225,7 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 		sn := signedCrt.SerialNumber.Text(16)
 
 		// Store the signed certificate
-		if err := s.store.StoreCert(csrBase64, challenge, signedCrt); err != nil {
+		if err := s.store.StoreCert(r.Context(), csrBase64, challenge, signedCrt); err != nil {
 			s.log.Warn().Err(err).
 				Str("serial_number", sn).
 				Str("dbid", dbid).
@@ -244,7 +244,7 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Mark as notified in the certificate store
-		_, err = s.store.MarkIntuneNotified(csrBase64, challenge)
+		_, err = s.store.MarkIntuneNotified(r.Context(), csrBase64, challenge)
 		if err != nil {
 			s.log.Warn().Err(err).
 				Str("serial_number", sn).

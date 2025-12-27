@@ -32,9 +32,9 @@ type Verifier interface {
 }
 
 type Store interface {
-	StoreCert(csr, txid string, cert *x509.Certificate) error
-	GetCert(csr, txid string) (*x509.Certificate, bool, error)
-	MarkIntuneNotified(csr, txid string) (bool, error)
-	PurgeExpired() (int64, error)
+	StoreCert(ctx context.Context, csr, txid string, cert *x509.Certificate) error
+	GetCert(ctx context.Context, csr, txid string) (*x509.Certificate, bool, error)
+	MarkIntuneNotified(ctx context.Context, csr, txid string) (bool, error)
+	PurgeExpired(ctx context.Context) (int64, error)
 	Close() error
 }
