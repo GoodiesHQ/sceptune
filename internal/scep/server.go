@@ -94,14 +94,15 @@ func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
 				var backoff = backoffDefault
 				for range retries {
 					_, err := s.store.PurgeExpired(ctx)
-					if err != nil {
-						if isErrorBusy(err) {
-							<-time.After(backoff)
-							backoff *= 2
-							continue
-						}
-						s.log.Error().Err(err).Msg("Error purging expired certificates")
+					if err == nil {
+						break
 					}
+					if isErrorBusy(err) {
+						time.Sleep(backoff)
+						backoff *= 2
+						continue
+					}
+					s.log.Error().Err(err).Msg("Error purging expired certificates")
 				}
 			case <-ctx.Done():
 				return
