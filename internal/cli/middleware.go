@@ -1,5 +1,8 @@
 package cli
 
+// removed rate limit middleware, let the front end reverse proxy handle it
+
+/*
 import (
 	"context"
 	"net/http"
@@ -72,3 +75,4 @@ func middlewareRateLimit(ctx context.Context, limit rate.Limit, burst int) func(
 		})
 	}
 }
+*/

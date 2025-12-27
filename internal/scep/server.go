@@ -15,19 +15,25 @@ import (
 )
 
 type SCEPServerWindows struct {
-	raCrt     *x509.Certificate
-	raKey     crypto.PrivateKey
-	caChain   []*x509.Certificate
-	log       zerolog.Logger
-	signer    utils.Signer
-	verifier  utils.Verifier
-	store     utils.Store
-	muPurge   sync.Mutex
-	isPurging bool
+	raCrt                *x509.Certificate
+	raKey                crypto.PrivateKey
+	caChain              []*x509.Certificate
+	log                  zerolog.Logger
+	signer               utils.Signer
+	verifier             utils.Verifier
+	store                utils.Store
+	muPurge              sync.Mutex
+	complianceRequired   bool
+	complianceAllowGrace bool
+	intuneCnType         utils.IntuneCnType
+	isPurging            bool
 }
 
 // NewSCEPServerWindows creates a new SCEP server instance
-func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate, verifier utils.Verifier, signer utils.Signer, store utils.Store) *SCEPServerWindows {
+func NewSCEPServerWindows(
+	raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate,
+	verifier utils.Verifier, signer utils.Signer, store utils.Store,
+	complianceRequired, complianceAllowGrace bool, intuneCnType utils.IntuneCnType) *SCEPServerWindows {
 	return &SCEPServerWindows{
 		raCrt:    raCert,
 		raKey:    raKey,
@@ -36,6 +42,9 @@ func NewSCEPServerWindows(raCert *x509.Certificate, raKey crypto.PrivateKey, caC
 		signer:   signer,
 		store:    store,
 		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
+		intuneCnType: 	   intuneCnType,
+		complianceRequired:   complianceRequired,
+		complianceAllowGrace: complianceAllowGrace,
 	}
 }
 

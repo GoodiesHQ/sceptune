@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/time/rate"
 )
 
 func run(ctx context.Context, c *cli.Command) error {
@@ -29,34 +28,36 @@ func run(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
-	// create and start the SCEP server
+	// create a new muxer
 	mux := chi.NewMux()
 
 	// TODO: implement SCEP server for non-Windows platforms
-	clientMS, clientStep, certStore, err := initialize(ctx, params)
+	verifier, signer, store, err := initialize(ctx, params)
 	if err != nil {
 		return err
 	}
 
 	// Create a SCEP server for Windows Intune clients
 	scepServerWin := scep.NewSCEPServerWindows(params.RaCrt, params.RaKey,
-		params.CaChain, clientMS, clientStep, certStore)
+		params.CaChain, verifier, signer, store,
+		params.IntuneComplianceRequired, params.IntuneComplianceAllowGrace, params.IntuneScepCnType,
+	)
 
 	// Create a CRL server backed by the Step CA server
-	crlServer := crl.NewCrlServer(clientStep)
+	crlServer := crl.NewCrlServer(signer)
 
 	// Rate limit middleware
-	perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
+	// perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
 
 	mux.Route(params.ScepPath, func(r chi.Router) {
 		// Handlers for Windows SCEP clients
-		r.Get("/pkiclient.exe", perIP(scepServerWin).ServeHTTP)
-		r.Post("/pkiclient.exe", perIP(scepServerWin).ServeHTTP)
+		r.Get("/pkiclient.exe", scepServerWin.ServeHTTP)
+		r.Post("/pkiclient.exe", scepServerWin.ServeHTTP)
 	})
 
 	// CRL endpoint
 	mux.Route(params.CRLPath, func(r chi.Router) {
-		r.Get("/", perIP(crlServer).ServeHTTP)
+		r.Get("/", crlServer.ServeHTTP)
 	})
 
 	httpServer := &http.Server{
@@ -71,7 +72,7 @@ func run(ctx context.Context, c *cli.Command) error {
 		<-ctx.Done()
 		log.Warn().Msg("Shutting down SCEP server and cleaning up resources...")
 
-		if err := certStore.Close(); err != nil {
+		if err := store.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing certificate store")
 		}
 

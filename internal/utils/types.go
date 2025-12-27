@@ -2,8 +2,22 @@ package utils
 
 import (
 	"context"
+	"crypto"
 	"crypto/x509"
 )
+
+type IntuneCnType string
+
+const (
+	IntuneCnTypeAADDeviceID IntuneCnType = "AAD_Device_ID"
+	IntuneCnTypeDeviceID    IntuneCnType = "DeviceId"
+)
+
+type Certs interface {
+	GetCrt() *x509.Certificate
+	GetKey() crypto.PrivateKey
+	GetChain() []*x509.Certificate
+}
 
 type Signer interface {
 	SignCSR(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, error)
@@ -11,9 +25,10 @@ type Signer interface {
 }
 
 type Verifier interface {
-	VerifyCSR(ctx context.Context, csr string, txid string) (bool, error)
-	NotifyFailure(ctx context.Context, csr, txid string, hResult int64, errorDescription string) error
-	NotifySuccess(ctx context.Context, csr, txid string, crt, root *x509.Certificate) error
+	VerifyCSR(ctx context.Context, csr string, challenge string) (bool, error)
+	NotifyFailure(ctx context.Context, csr, challenge string, hResult int64, errorDescription string) error
+	NotifySuccess(ctx context.Context, csr, challenge string, crt, root *x509.Certificate) error
+	VerifyCompliance(ctx context.Context, cnType IntuneCnType, cn string, allowGrace bool) (string, bool, error)
 }
 
 type Store interface {

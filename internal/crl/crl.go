@@ -7,6 +7,7 @@ import (
 	"github.com/goodieshq/sceptune/internal/utils"
 )
 
+// CrlServer is an HTTP server that serves the Certificate Revocation List (CRL).
 type CrlServer struct {
 	signer utils.Signer
 }
@@ -17,6 +18,7 @@ func NewCrlServer(signer utils.Signer) *CrlServer {
 	}
 }
 
+// Implement http.Handler
 func (s *CrlServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	crl, err := s.signer.GetCRL(r.Context())
 	if err != nil {

@@ -182,6 +182,34 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
+		if s.complianceRequired {
+			cn := csr.Subject.CommonName
+
+			// Check if device compliance is required:
+			deviceName, isCompliant, err := s.verifier.VerifyCompliance(
+				r.Context(),
+				s.intuneCnType,
+				cn,
+				s.complianceAllowGrace,
+			)
+			if err != nil {
+				s.log.Error().Err(err).Msg("Error verifying device compliance with Intune")
+				s.verifier.NotifyFailure(r.Context(), csrBase64, challenge, ms.HResultCertDenied, "Device Compliance Check Failed")
+				s.sendFailureResponse(w, msg, scep.BadRequest)
+				return
+			}
+
+			// Check if device is compliant
+			if !isCompliant {
+				s.log.Warn().Msg("Device is not compliant")
+				s.verifier.NotifyFailure(r.Context(), csrBase64, challenge, ms.HResultCertDenied, "Device is not compliant")
+				s.sendFailureResponse(w, msg, scep.BadRequest)
+				return
+			}
+
+			s.log.Info().Str("device_name", deviceName).Msg("Device is compliant")
+		}
+
 		// From this point on, all failues must be reported back to Intune
 
 		s.log.Info().Msg("CSR/Challenge verified successfully.")

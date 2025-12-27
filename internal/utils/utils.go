@@ -21,12 +21,15 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/smallstep/pkcs7"
+	"github.com/youmark/pkcs8"
 )
 
+// Ptr converts a value to a pointer.
 func Ptr[T any](v T) *T {
 	return &v
 }
 
+// Deref dereferences a pointer.O
 func Deref[T any](p *T) T {
 	var zero T
 	if p == nil {
@@ -35,6 +38,7 @@ func Deref[T any](p *T) T {
 	return *p
 }
 
+// IsFile checks if the given path is a file.
 func IsFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -43,6 +47,7 @@ func IsFile(path string) bool {
 	return !info.IsDir()
 }
 
+// TryParsePEM attempts to parse a non-encrypted PEM-encoded block from the given data.
 func TryParsePEM(data []byte) []byte {
 	block, rest := pem.Decode(data)
 	if block != nil {
@@ -51,11 +56,13 @@ func TryParsePEM(data []byte) []byte {
 	return rest
 }
 
+// TryParseCertificate attempts to parse a PEM/DER certificate from the given data.
 func TryParseCertificate(data []byte) (*x509.Certificate, error) {
 	data = TryParsePEM(data)
 	return x509.ParseCertificate(data)
 }
 
+// TryParseChain attempts to parse a PEM-encoded certificate chain from the given data.
 func TryParseChain(data []byte) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	for {
@@ -80,23 +87,99 @@ func TryParseChain(data []byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func TryParseKey(data []byte) (crypto.PrivateKey, error) {
-	data = TryParsePEM(data)
-	key, err := x509.ParsePKCS8PrivateKey(data)
-	if err == nil {
-		return key, nil
+func getPrivateKeyBlock(data []byte) *pem.Block {
+	block, _ := pem.Decode(data)
+	if block != nil && strings.HasSuffix(block.Type, "PRIVATE KEY") {
+		return block
 	}
-	key, err = x509.ParsePKCS1PrivateKey(data)
-	if err == nil {
-		return key, nil
-	}
-	key, err = x509.ParseECPrivateKey(data)
-	if err == nil {
-		return key, nil
-	}
-	return nil, fmt.Errorf("failed to parse private key: %w", err)
+	return nil
 }
 
+func tryParseKeyDER(der []byte, password []byte) (crypto.PrivateKey, error) {
+	if len(password) > 0 {
+		if k, err := pkcs8.ParsePKCS8PrivateKey(der, password); err == nil {
+			return k.(crypto.PrivateKey), nil
+		}
+	}
+
+	if k, err := pkcs8.ParsePKCS8PrivateKey(der); err == nil {
+		return k.(crypto.PrivateKey), nil
+	}
+
+	if k, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return k, nil
+	}
+
+	if k, err := x509.ParseECPrivateKey(der); err == nil {
+		return k, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse private key in DER format")
+}
+
+func tryParseKeyPEM(block *pem.Block, password []byte) (crypto.PrivateKey, error) {
+	der := block.Bytes
+	if x509.IsEncryptedPEMBlock(block) {
+		if len(password) == 0 {
+			return nil, fmt.Errorf("private key is encrypted but no password was provided")
+		}
+
+		var err error
+		der, err = x509.DecryptPEMBlock(block, password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt private key PEM block (%s): %w", block.Type, err)
+		}
+	}
+
+	switch block.Type {
+	case "ENCRYPTED PRIVATE KEY": // pkcs8
+		if len(password) == 0 {
+			return nil, fmt.Errorf("private key is encrypted but no password was provided")
+		}
+		k, err := pkcs8.ParsePKCS8PrivateKey(der, password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse encrypted PKCS8 private key: %w", err)
+		}
+		return k.(crypto.PrivateKey), nil
+	case "PRIVATE KEY":
+		k, err := pkcs8.ParsePKCS8PrivateKey(der)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse PKCS8 private key: %w", err)
+		}
+		return k.(crypto.PrivateKey), nil
+	case "RSA PRIVATE KEY":
+		k, err := x509.ParsePKCS1PrivateKey(der)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse RSA private key: %w", err)
+		}
+		return k, nil
+	case "EC PRIVATE KEY":
+		k, err := x509.ParseECPrivateKey(der)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse EC private key: %w", err)
+		}
+		return k, nil
+	default:
+		return tryParseKeyDER(der, password)
+	}
+}
+
+// TryParseKey attempts to parse a private key from the given data.
+func TryParseKey(data []byte, password *string) (crypto.PrivateKey, error) {
+	pw := []byte(nil)
+	if password != nil {
+		pw = []byte(*password)
+	}
+
+	block := getPrivateKeyBlock(data)
+	if block != nil {
+		return tryParseKeyPEM(block, pw)
+	}
+
+	return nil, fmt.Errorf("failed to parse private key")
+}
+
+// CheckCrtKeyMatch checks if the given key is valid for the given certificate
 func CheckCrtKeyMatch(crt *x509.Certificate, key crypto.PrivateKey) (bool, error) {
 	var pubKeyFromCrt crypto.PublicKey = crt.PublicKey
 
@@ -120,6 +203,7 @@ func CheckCrtKeyMatch(crt *x509.Certificate, key crypto.PrivateKey) (bool, error
 	}
 }
 
+// pseudoRandomDataSimple generates a small amount of pseudo-random data without errors
 func pseudoRandomDataSimple() []byte {
 	var buf bytes.Buffer
 
@@ -138,6 +222,7 @@ func pseudoRandomDataSimple() []byte {
 	return buf.Bytes()
 }
 
+// GenerateActivityID generates a new UUID. Prefers random UUID, falls back to simpler pseudorandom data.
 func GenerateActivityID() string {
 	// prefer new random
 	uid, err := uuid.NewRandom()
@@ -148,6 +233,7 @@ func GenerateActivityID() string {
 	return uid.String()
 }
 
+// BuildBundle creates a PKCS7 bundle from the RA certificate and CA chain.
 func BuildBundle(raCrt *x509.Certificate, caChain []*x509.Certificate) ([]byte, error) {
 	if raCrt == nil {
 		return nil, fmt.Errorf("RA certificate is nil")
@@ -191,6 +277,7 @@ var allEncryptionAlgorithms = []jose.ContentEncryption{
 	jose.A128GCM, jose.A192GCM, jose.A256GCM,
 }
 
+// ParseJWK attempts to parse a JSON Web Key (JWK) from the given data.
 func ParseJWK(data []byte, password string) (*jose.JSONWebKey, error) {
 	// Attempt to parse the JWK plaintext first
 	var jwe *jose.JSONWebEncryption
@@ -202,7 +289,7 @@ func ParseJWK(data []byte, password string) (*jose.JSONWebKey, error) {
 		return &jwk, nil
 	}
 
-	// Attempt to parse as encrypted JWK
+	// Failed to unmarshal, attempt to parse as encrypted JWK
 	jwe, err = jose.ParseEncryptedJSON(string(data), allKeyAlgorithms, allEncryptionAlgorithms)
 	if err == nil {
 		decrypted, err := jwe.Decrypt(password)
@@ -219,8 +306,9 @@ func ParseJWK(data []byte, password string) (*jose.JSONWebKey, error) {
 	return nil, err
 }
 
+// Check if a JWT token contains a specific role by name
 func TokenHasRole(token string, roleName string) bool {
-	type foo struct {
+	type rolesClaim struct {
 		Roles []string `json:"roles"`
 	}
 
@@ -237,7 +325,7 @@ func TokenHasRole(token string, roleName string) bool {
 		return false
 	}
 
-	var claims foo
+	var claims rolesClaim
 	if err := json.Unmarshal(bufClaims, &claims); err != nil {
 		return false
 	}
@@ -250,6 +338,7 @@ func TokenHasRole(token string, roleName string) bool {
 	return false
 }
 
+// DedupStrings removes duplicate strings from a slice.
 func DedupStrings(input []string) []string {
 	seen := make(map[string]struct{})
 	var result []string
@@ -267,6 +356,7 @@ func DedupStrings(input []string) []string {
 	return result
 }
 
+// Get all SANs from a CSR
 func ExtractSANsFromCSR(csr *x509.CertificateRequest) []string {
 	var sans []string
 
@@ -282,6 +372,7 @@ func ExtractSANsFromCSR(csr *x509.CertificateRequest) []string {
 	return DedupStrings(sans)
 }
 
+// NormalizeHex will remove common symbols from a hex string (e.g. thumbprints/fingerprints/serial numbers)
 func NormalizeHex(fingerprint string) string {
 	fingerprint = strings.ToLower(fingerprint)
 	fingerprint = strings.ReplaceAll(fingerprint, ":", "")
@@ -290,16 +381,19 @@ func NormalizeHex(fingerprint string) string {
 	return fingerprint
 }
 
+// FingerprintSha256 returns the SHA-256 fingerprint of a certificate as a normalized hex string.
 func FingerprintSha256(cert *x509.Certificate) string {
 	hash := sha256.Sum256(cert.Raw)
 	return NormalizeHex(hex.EncodeToString(hash[:]))
 }
 
+// FingerprintSha1 returns the SHA-1 fingerprint of a certificate as a normalized hex string.
 func FingerprintSha1(cert *x509.Certificate) string {
 	hash := sha1.Sum(cert.Raw)
 	return NormalizeHex(hex.EncodeToString(hash[:]))
 }
 
+// Create a Database Identifier from a CSR and Transaction ID/Challenge
 func CreateDBID(csr, txid string) string {
 	hash := sha256.New()
 	hash.Write([]byte(csr))
@@ -307,4 +401,8 @@ func CreateDBID(csr, txid string) string {
 	hash.Write([]byte(txid))
 
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func EscapeODataString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }

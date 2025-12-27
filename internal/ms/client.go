@@ -15,6 +15,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/goodieshq/sceptune/internal/utils"
+	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
+	"github.com/microsoftgraph/msgraph-sdk-go/devicemanagement"
+	"github.com/microsoftgraph/msgraph-sdk-go/models"
 )
 
 const (
@@ -25,11 +28,17 @@ const (
 	appIdIntune        = "0000000a-0000-0000-c000-000000000000" // Intune App ID
 	apiVersionIntune   = "2018-02-20"                           // Intune API version
 	expirationInterval = time.Minute * 30                       // 30 minutes cache expiration
+	// URL endpoints for SCEP actions
+	endpointNotifySuccess = "/ScepActions/successNotification"
+	endpointNotifyFailure = "/ScepActions/failureNotification"
+	endpointVerify        = "/ScepActions/validateRequest"
 )
 
+// Microsoft (Graph and Intune) client
 type MSClient struct {
 	cred                  *azidentity.ClientSecretCredential // Azure credential
 	httpClient            *http.Client                       // HTTP client for making requests
+	graphClient           *msgraph.GraphServiceClient        // Microsoft Graph API client
 	muEndpointScep        sync.Mutex                         // mutex for synchronizing access to SCEP endpoint
 	endpointScepLastFetch time.Time                          // last fetch time for SCEP endpoint
 	endpointScepUri       string                             // cached SCEP endpoint URI
@@ -42,12 +51,97 @@ func NewMSClient(tenantID, clientID, clientSecret string) (*MSClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	var scope = []string{"https://graph.microsoft.com/.default"}
+
+	graphClient, err := msgraph.NewGraphServiceClientWithCredentials(cred, scope)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MSClient{
-		cred:       cred,
-		httpClient: &http.Client{Timeout: time.Second * 10},
+		cred:        cred,
+		graphClient: graphClient,
+		httpClient:  &http.Client{Timeout: time.Second * 10},
 	}, nil
 }
 
+func evalDeviceCompliance(device models.ManagedDeviceable, allowGrace bool) (deviceName string, compliant bool, err error) {
+	namePtr := device.GetDeviceName()
+	if namePtr == nil {
+		return "", false, fmt.Errorf("device name is nil")
+	}
+	name := *namePtr
+
+	statePtr := device.GetComplianceState()
+	if statePtr == nil {
+		return name, false, fmt.Errorf("device compliance state is nil")
+	}
+	state := strings.ToLower((*statePtr).String())
+
+	switch state {
+	case "compliant":
+		return name, true, nil
+	case "ingraceperiod":
+		return name, allowGrace, nil
+	default:
+		return name, false, nil
+	}
+}
+
+func (c *MSClient) VerifyCompliance(ctx context.Context, cnType utils.IntuneCnType, cn string, allowGrace bool) (string, bool, error) {
+	switch cnType {
+	case utils.IntuneCnTypeAADDeviceID:
+		return c.verifyComplianceAzureAD(ctx, cn, allowGrace)
+	case utils.IntuneCnTypeDeviceID:
+		return c.verifyComplianceIntune(ctx, cn, allowGrace)
+	}
+	return "", false, fmt.Errorf("unknown CN type: %s", cnType)
+}
+
+func (c *MSClient) verifyComplianceIntune(ctx context.Context, deviceID string, allowGrace bool) (deviceName string, compliant bool, err error) {
+	cfg := &devicemanagement.ManagedDevicesManagedDeviceItemRequestBuilderGetRequestConfiguration{
+		QueryParameters: &devicemanagement.ManagedDevicesManagedDeviceItemRequestBuilderGetQueryParameters{
+			Select: []string{"id", "deviceName", "azureADDeviceId", "complianceState"},
+		},
+	}
+	device, err := c.graphClient.DeviceManagement().ManagedDevices().ByManagedDeviceId(deviceID).Get(ctx, cfg)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get Intune device info from Graph: %w", err)
+	}
+
+	if device != nil {
+		return evalDeviceCompliance(device, allowGrace)
+	}
+
+	return "", false, fmt.Errorf("device with ID %s not found in Intune", deviceID)
+}
+
+func (c *MSClient) verifyComplianceAzureAD(ctx context.Context, deviceID string, allowGrace bool) (deviceName string, compliant bool, err error) {
+	cfg := &devicemanagement.ManagedDevicesRequestBuilderGetRequestConfiguration{
+		QueryParameters: &devicemanagement.ManagedDevicesRequestBuilderGetQueryParameters{
+			Filter: utils.Ptr(fmt.Sprintf("azureADDeviceId eq '%s'", utils.EscapeODataString(deviceID))),
+			Top:    utils.Ptr[int32](1),
+			Select: []string{"id", "deviceName", "azureADDeviceId", "complianceState"},
+		},
+	}
+	devicesResponse, err := c.graphClient.DeviceManagement().ManagedDevices().Get(ctx, cfg)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get AzureAD device info from Graph: %w", err)
+	}
+
+	devices := devicesResponse.GetValue()
+	if len(devices) == 0 {
+		return "", false, fmt.Errorf("device with AzureAD ID %s not found in Intune", deviceID)
+	}
+	if len(devices) > 1 {
+		return "", false, fmt.Errorf("multiple devices with AzureAD ID %s found in Intune", deviceID)
+	}
+	device := devices[0]
+
+	return evalDeviceCompliance(device, allowGrace)
+}
+
+// PopulateScepEndpoint fetches the Intune SCEP endpoint from Microsoft Graph
 func (c *MSClient) PopulateScepEndpoint(ctx context.Context) error {
 	c.muEndpointScep.Lock()
 	defer c.muEndpointScep.Unlock()
@@ -57,7 +151,7 @@ func (c *MSClient) PopulateScepEndpoint(ctx context.Context) error {
 		return nil // still valid
 	}
 
-	endpoint, err := getGraphEndpointByProvider(ctx, c.cred, appIdIntune, "ScepRequestValidationFEService")
+	endpoint, err := getGraphEndpointByProvider(ctx, c.graphClient, appIdIntune, "ScepRequestValidationFEService")
 	if err != nil {
 		c.endpointScepLastFetch = time.Time{}
 		c.endpointScepUri = ""
@@ -172,7 +266,7 @@ func (c *MSClient) NotifyFailure(ctx context.Context, csr, txid string, hResult 
 	_, status, _, res, err := utils.PostJson(
 		ctx,
 		c.httpClient,
-		endpoint+"/ScepActions/failureNotification",
+		endpoint+endpointNotifyFailure,
 		headers,
 		notification,
 		&resBody,
@@ -232,7 +326,7 @@ func (c *MSClient) NotifySuccess(ctx context.Context, csr, txid string, crt, roo
 	_, status, _, res, err := utils.PostJson(
 		ctx,
 		c.httpClient,
-		endpoint+"/ScepActions/successNotification",
+		endpoint+endpointNotifySuccess,
 		headers,
 		notification,
 		&resBody,
@@ -280,7 +374,7 @@ func (c *MSClient) VerifyCSR(ctx context.Context, csr string, txid string) (bool
 
 	var resBody IntuneResponse
 
-	url := endpoint + "/ScepActions/validateRequest"
+	url := endpoint + endpointVerify
 	_, statusCode, header, resBytes, err := utils.PostJson(
 		ctx,
 		c.httpClient,

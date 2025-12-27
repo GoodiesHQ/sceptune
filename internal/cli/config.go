@@ -14,23 +14,26 @@ import (
 )
 
 type Params struct {
-	Port                uint16
-	ScepPath            string
-	CRLPath             string
-	OAuthIssuerUrl      string
-	OAuthClientID       string
-	OAuthClientSecret   string
-	IntuneTenantID      string
-	IntuneClientID      string
-	IntuneClientSecret  string
-	RootCaCrt           *x509.Certificate
-	RaCrt               *x509.Certificate
-	RaKey               crypto.PrivateKey
-	CaChain             []*x509.Certificate
-	StepApiUrl          string
-	StepProvisionerName string
-	StepJWK             *jose.JSONWebKey
-	DatabasePath        string
+	Port                       uint16
+	ScepPath                   string
+	CRLPath                    string
+	OAuthIssuerUrl             string
+	OAuthClientID              string
+	OAuthClientSecret          string
+	IntuneTenantID             string
+	IntuneClientID             string
+	IntuneClientSecret         string
+	IntuneComplianceRequired   bool
+	IntuneComplianceAllowGrace bool
+	IntuneScepCnType           utils.IntuneCnType
+	RootCaCrt                  *x509.Certificate
+	RaCrt                      *x509.Certificate
+	RaKey                      crypto.PrivateKey
+	CaChain                    []*x509.Certificate
+	StepApiUrl                 string
+	StepProvisionerName        string
+	StepJWK                    *jose.JSONWebKey
+	DatabasePath               string
 }
 
 func loadParams(c *cli.Command) (*Params, error) {
@@ -49,7 +52,7 @@ func loadParams(c *cli.Command) (*Params, error) {
 
 	var oauthIssuerUrl, oauthClientID, oauthClientSecret string
 
-	if false {
+	/*
 		oauthIssuerUrl := c.String("oauth-issuer-url")
 		if oauthIssuerUrl == "" {
 			return nil, fmt.Errorf("OAuth issuer URL is required")
@@ -80,7 +83,7 @@ func loadParams(c *cli.Command) (*Params, error) {
 				return nil, fmt.Errorf("cannot specify both --oauth-client-secret and --oauth-client-secret-file")
 			}
 		}
-	}
+	*/
 
 	// Parse the Intune application settings used to verify SCEP challengs
 	intuneTenantID := c.String("intune-tenant-id")
@@ -114,6 +117,19 @@ func loadParams(c *cli.Command) (*Params, error) {
 		}
 	}
 
+	intuneComplianceRequired := c.Bool("intune-compliance-required")
+	intuneComplianceAllowGrace := c.Bool("intune-compliance-allow-grace")
+	var intuneScepCnType string = ""
+	if intuneComplianceRequired {
+		intuneScepCnType = c.String("intune-scep-cn")
+		if intuneScepCnType == "" {
+			return nil, fmt.Errorf("--intune-scep-cn is required when compliance is enabled")
+		}
+		if intuneScepCnType != "AAD_Device_ID" && intuneScepCnType != "DeviceId" {
+			return nil, fmt.Errorf("Invalid Intune SCEP Common Name value, must be 'AAD_Device_ID' or 'DeviceId'")
+		}
+	}
+
 	// Parse the trust anchor Root CA
 	/*
 		rootCaCrtFile := c.String("root-ca-crt")
@@ -132,12 +148,8 @@ func loadParams(c *cli.Command) (*Params, error) {
 
 	// Parse the SCEP server RA certificate and key
 	raCrtFile := c.String("ra-crt")
-	raKeyFile := c.String("ra-key")
 	if raCrtFile == "" || !utils.IsFile(raCrtFile) {
 		return nil, fmt.Errorf("RA certificate file is required")
-	}
-	if raKeyFile == "" || !utils.IsFile(raKeyFile) {
-		return nil, fmt.Errorf("RA key file is required")
 	}
 
 	raCrtBytes, err := os.ReadFile(raCrtFile)
@@ -145,17 +157,35 @@ func loadParams(c *cli.Command) (*Params, error) {
 		return nil, fmt.Errorf("failed to read RA certificate file: %w", err)
 	}
 
-	raKeyBytes, err := os.ReadFile(raKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read RA key file: %w", err)
-	}
-
 	raCrt, err := utils.TryParseCertificate(raCrtBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse RA certificate: %w", err)
 	}
 
-	raKey, err := utils.TryParseKey(raKeyBytes)
+	raKeyFile := c.String("ra-key")
+	if raKeyFile == "" || !utils.IsFile(raKeyFile) {
+		return nil, fmt.Errorf("RA key file is required")
+	}
+
+	raKeyPassword := c.String("ra-key-password")
+	raKeyPasswordFile := c.String("ra-key-password-file")
+	if raKeyPasswordFile != "" {
+		if raKeyPassword != "" {
+			return nil, fmt.Errorf("cannot specify both --ra-key-password and --ra-key-password-file")
+		}
+		data, err := os.ReadFile(raKeyPasswordFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read RA key password file: %w", err)
+		}
+		raKeyPassword = string(data)
+	}
+
+	raKeyBytes, err := os.ReadFile(raKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read RA key file: %w", err)
+	}
+
+	raKey, err := utils.TryParseKey(raKeyBytes, &raKeyPassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse RA private key: %w", err)
 	}
@@ -253,21 +283,25 @@ func loadParams(c *cli.Command) (*Params, error) {
 	}
 
 	return &Params{
-		Port:                port,
-		ScepPath:            "/" + strings.TrimLeft(scepPath, "/"),
-		CRLPath:             "/" + strings.TrimLeft(crlPath, "/"),
-		OAuthIssuerUrl:      oauthIssuerUrl,
-		OAuthClientID:       oauthClientID,
-		OAuthClientSecret:   oauthClientSecret,
-		IntuneTenantID:      intuneTenantID,
-		IntuneClientID:      intuneClientID,
-		IntuneClientSecret:  intuneClientSecret,
-		RootCaCrt:           rootCaCrt,
-		RaCrt:               raCrt,
-		RaKey:               raKey,
-		CaChain:             chain,
-		StepApiUrl:          stepApiUrl,
-		StepProvisionerName: stepProvisionerName,
-		StepJWK:             jwk,
+		Port:                       port,
+		ScepPath:                   "/" + strings.TrimLeft(scepPath, "/"),
+		CRLPath:                    "/" + strings.TrimLeft(crlPath, "/"),
+		OAuthIssuerUrl:             oauthIssuerUrl,
+		OAuthClientID:              oauthClientID,
+		OAuthClientSecret:          oauthClientSecret,
+		IntuneTenantID:             intuneTenantID,
+		IntuneClientID:             intuneClientID,
+		IntuneClientSecret:         intuneClientSecret,
+		IntuneComplianceRequired:   intuneComplianceRequired,
+		IntuneComplianceAllowGrace: intuneComplianceAllowGrace,
+		IntuneScepCnType:           utils.IntuneCnType(intuneScepCnType),
+		RootCaCrt:                  rootCaCrt,
+		RaCrt:                      raCrt,
+		RaKey:                      raKey,
+		CaChain:                    chain,
+		StepApiUrl:                 stepApiUrl,
+		StepProvisionerName:        stepProvisionerName,
+		StepJWK:                    jwk,
+		DatabasePath:               dbPath,
 	}, nil
 }

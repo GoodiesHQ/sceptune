@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/goodieshq/sceptune/internal/utils"
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	"github.com/microsoftgraph/msgraph-sdk-go/serviceprincipals"
@@ -13,14 +12,7 @@ import (
 )
 
 // getGraphEndpointByProvider fetches the endpoint URI from Microsoft Graph by App ID and Provider Name
-func getGraphEndpointByProvider(ctx context.Context, cred *azidentity.ClientSecretCredential, appId string, providerName string) (string, error) {
-	var scope = []string{"https://graph.microsoft.com/.default"}
-
-	client, err := msgraph.NewGraphServiceClientWithCredentials(cred, scope)
-	if err != nil {
-		return "", err
-	}
-
+func getGraphEndpointByProvider(ctx context.Context, client *msgraph.GraphServiceClient, appId string, providerName string) (string, error) {
 	log.Debug().Msg("Fetching SCEP endpoint from Microsoft Graph...")
 
 	spGetCfg := &serviceprincipals.ServicePrincipalsRequestBuilderGetRequestConfiguration{
