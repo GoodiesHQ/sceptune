@@ -406,3 +406,13 @@ func CreateDBID(csr, txid string) string {
 func EscapeODataString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
+
+func ReadTextFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Trim whitespace from the beginning and end of the file contents
+	return strings.TrimSpace(string(data)), nil
+}

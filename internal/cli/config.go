@@ -173,11 +173,10 @@ func loadParams(c *cli.Command) (*Params, error) {
 		if raKeyPassword != "" {
 			return nil, fmt.Errorf("cannot specify both --ra-key-password and --ra-key-password-file")
 		}
-		data, err := os.ReadFile(raKeyPasswordFile)
+		raKeyPassword, err = utils.ReadTextFile(raKeyPasswordFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read RA key password file: %w", err)
 		}
-		raKeyPassword = string(data)
 	}
 
 	raKeyBytes, err := os.ReadFile(raKeyFile)
@@ -255,11 +254,10 @@ func loadParams(c *cli.Command) (*Params, error) {
 			if !utils.IsFile(jwkPasswordFile) {
 				return nil, fmt.Errorf("JWK password file does not exist")
 			}
-			passwordBytes, err := os.ReadFile(jwkPasswordFile)
+			jwkPassword, err = utils.ReadTextFile(jwkPasswordFile)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read JWK password file: %w", err)
 			}
-			jwkPassword = string(passwordBytes)
 		}
 	}
 
