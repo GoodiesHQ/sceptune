@@ -324,7 +324,8 @@ func validateCsr(csr *x509.CertificateRequest) error {
 	// Check CSR signature algorithm
 	switch csr.SignatureAlgorithm {
 	case x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA,
-		x509.ECDSAWithSHA256, x509.ECDSAWithSHA384, x509.ECDSAWithSHA512:
+		x509.ECDSAWithSHA256, x509.ECDSAWithSHA384, x509.ECDSAWithSHA512,
+		x509.SHA1WithRSA, x509.ECDSAWithSHA1:
 		// Supported algorithms
 	default:
 		return fmt.Errorf("unsupported CSR signature algorithm: %s", csr.SignatureAlgorithm)

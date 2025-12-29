@@ -181,11 +181,9 @@ func (cs *CertificateStore) PurgeExpired(ctx context.Context) (int64, error) {
 	timestamp := time.Now().UTC()
 	timestamp = timestamp.Add(-24 * time.Hour)
 
-	// Batch delete expired certificates to limit lock time
 	result, err := cs.db.ExecContext(ctx, `
 			DELETE FROM certificates
 			WHERE expiration < ?
-			LIMIT 100
 		`, timestamp)
 
 	if err != nil {
