@@ -2,6 +2,7 @@ package step
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -27,7 +28,7 @@ type StepClient struct {
 	httpClient      *http.Client
 }
 
-func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSONWebKey) (*StepClient, error) {
+func NewStepClient(apiUrl, provisionerName, caFingerprint string, chain []*x509.Certificate, jwk *jose.JSONWebKey) (*StepClient, error) {
 	// Validate Step CA API URL
 	url, err := url.Parse(apiUrl)
 	if err != nil {
@@ -54,6 +55,11 @@ func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSON
 		return nil, fmt.Errorf("failed to create Step CA client: %w", err)
 	}
 
+	certPool := x509.NewCertPool()
+	for _, cert := range chain {
+		certPool.AddCert(cert)
+	}
+
 	return &StepClient{
 		apiUrl:          apiUrl,
 		provisionerName: provisionerName,
@@ -63,6 +69,12 @@ func NewStepClient(apiUrl, provisionerName, caFingerprint string, jwk *jose.JSON
 		jwk:             jose.SigningKey{Algorithm: jose.ES256, Key: jwk.Key},
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs: certPool,
+					MinVersion: tls.VersionTLS12,
+				},
+			},
 		},
 	}, nil
 }

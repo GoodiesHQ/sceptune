@@ -41,6 +41,7 @@ func initialize(ctx context.Context, params *Params) (utils.Verifier, utils.Sign
 		params.StepApiUrl,
 		params.StepProvisionerName,
 		utils.FingerprintSha256(params.RootCaCrt),
+		params.CaChain,
 		params.StepJWK,
 	)
 	if err != nil {
