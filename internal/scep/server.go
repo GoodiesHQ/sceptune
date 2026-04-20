@@ -163,6 +163,11 @@ func (s *SCEPServerWindows) logCSRDetails(csr *x509.CertificateRequest) {
 func (s *SCEPServerWindows) sendFailureResponse(w http.ResponseWriter, msg *scep.PKIMessage, failInfo scep.FailInfo) {
 	s.log.Warn().Str("fail_info", failInfo.String()).Msg("Sending failure response")
 
+	if msg == nil {
+		log.Error().Msg("Original message is nil")
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+	}
+
 	// Create failure response
 	certRep, err := msg.Fail(s.raCrt, s.raKey, failInfo)
 	if err != nil {

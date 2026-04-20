@@ -24,13 +24,14 @@ func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Re
 
 	// Read the request body
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB limit
+	defer r.Body.Close()
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.log.Error().Err(err).Msg("Error reading request body")
 		http.Error(w, "Failed to read request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	// Parse the SCEP PKI message
 	msg, err := scep.ParsePKIMessage(body)
@@ -47,10 +48,11 @@ func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Re
 
 	// Handle different message types
 	switch msg.MessageType {
-	case scep.PKCSReq, scep.RenewalReq, scep.UpdateReq:
+	case scep.RenewalReq, scep.UpdateReq:
+		// s.handleRenewalRequest(w, r, msg)
+		fallthrough
+	case scep.PKCSReq:
 		s.handleCSRRequest(w, r, msg)
-	// case scep.RenewalReq, scep.UpdateReq:
-	// s.handleRenewalRequest(w, r, msg)
 	case scep.GetCRL:
 		s.handleGetCRL(w, r)
 	case scep.GetCert:

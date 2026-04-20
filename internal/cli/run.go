@@ -72,13 +72,16 @@ func run(ctx context.Context, c *cli.Command) error {
 		<-ctx.Done()
 		log.Warn().Msg("Shutting down SCEP server and cleaning up resources...")
 
+		// Shutdown the HTTP server gracefully
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		httpServer.Shutdown(ctxShutdown)
+
+		// Close the certificate store after in-flight requests are completed
 		if err := store.Close(); err != nil {
 			log.Error().Err(err).Msg("Error closing certificate store")
 		}
-
-		ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		httpServer.Shutdown(ctxShutdown)
 	}()
 
 	// Start purging revoked certificates

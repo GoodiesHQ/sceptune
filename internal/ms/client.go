@@ -263,9 +263,8 @@ func (c *MSClient) NotifyFailure(ctx context.Context, csr, txid string, hResult 
 
 	var resBody IntuneResponse
 
-	_, status, _, res, err := utils.PostJson(
+	status, _, res, err := c.postJsonWithRetry(
 		ctx,
-		c.httpClient,
 		endpoint+endpointNotifyFailure,
 		headers,
 		notification,
@@ -323,9 +322,8 @@ func (c *MSClient) NotifySuccess(ctx context.Context, csr, txid string, crt, roo
 
 	var resBody IntuneResponse
 
-	_, status, _, res, err := utils.PostJson(
+	status, _, res, err := c.postJsonWithRetry(
 		ctx,
-		c.httpClient,
 		endpoint+endpointNotifySuccess,
 		headers,
 		notification,
@@ -375,9 +373,8 @@ func (c *MSClient) VerifyCSR(ctx context.Context, csr string, txid string) (bool
 	var resBody IntuneResponse
 
 	url := endpoint + endpointVerify
-	_, statusCode, header, resBytes, err := utils.PostJson(
+	statusCode, header, resBytes, err := c.postJsonWithRetry(
 		ctx,
-		c.httpClient,
 		url,
 		headers,
 		reqBody,

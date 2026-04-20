@@ -70,7 +70,8 @@ func GetRequestSourceIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			// use rightmost IP in X-Forwarded-For, which should be the original client IP
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 

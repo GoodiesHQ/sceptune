@@ -1,6 +1,6 @@
 module github.com/goodieshq/sceptune
 
-go 1.25.5
+go 1.25
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0

@@ -306,7 +306,7 @@ func ParseJWK(data []byte, password string) (*jose.JSONWebKey, error) {
 	return nil, err
 }
 
-// Check if a JWT token contains a specific role by name
+// Check if a JWT token contains a specific role by name, does not validate the token in any way, just decodes the claims and checks for the role.
 func TokenHasRole(token string, roleName string) bool {
 	type rolesClaim struct {
 		Roles []string `json:"roles"`
