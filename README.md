@@ -27,7 +27,7 @@ SCEPTune typically runs behind a reverse proxy that handles TLS termination and 
  - CRL distribution point for clients to check revoked certs
 
 ## Recommended Setup
-It is highly recommended that you utilize secure PKI practices when dealing with certificates along the chain used for SCEPTune. This may including using a cold, offline CA and/or a system of physical or cloud-based HSAs to store the private keys for this system.
+It is highly recommended that you utilize secure PKI practices when dealing with certificates along the chain used for SCEPTune. This may including using a cold, offline CA and/or a system of physical or cloud-based HSMs to store the private keys for this system.
 
 Some related tools of mine:
 - [bipkey](https://github.com/GoodiesHQ/bipkey): A way to derive deterministic ECC and RSA keys from a BIP-39 mnemonic and a salt.
