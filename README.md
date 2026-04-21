@@ -33,6 +33,8 @@ Some related tools of mine:
 - [bipkey](https://github.com/GoodiesHQ/bipkey): A way to derive deterministic ECC and RSA keys from a BIP-39 mnemonic and a salt.
 - [revokr](https://github.com/GoodiesHQ/revokr)Create CRL or TBS CRL from a text file of serial numbers and/or an existing CRL.
 
+The step-ca used by SCEPTune should use an Issuing CA provided by an existing offline root CA dedicated for this purpose. This Issuing CA should be provisioned as such in the microsoft certificate store(s) of all devices.
+
 # AI Docuslop
 Hello. It's me, a human! I used Claude Code to create a human-readable form of documentation of what this program does and how it happens. I believe it's done a great job:
 
