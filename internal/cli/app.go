@@ -43,6 +43,12 @@ var App = cli.Command{
 					Sources: cli.EnvVars("SCEPTUNE_SCEP_PATH"),
 				},
 				&cli.StringFlag{
+					Name:    "crt-path",
+					Usage:   "The URL path to serve the issuing CA CRT.",
+					Value:   "/crt",
+					Sources: cli.EnvVars("SCEPTUNE_CRT_PATH"),
+				},
+				&cli.StringFlag{
 					Name:    "crl-path",
 					Usage:   "The URL path to serve the CRL from Step CA.",
 					Value:   "/crl",

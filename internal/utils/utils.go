@@ -284,13 +284,14 @@ func ParseJWK(data []byte, password string) (*jose.JSONWebKey, error) {
 	var jwk jose.JSONWebKey
 	var err error
 
+	// First attempt to unmarshal as plaintext JWK
 	err = json.Unmarshal(data, &jwk)
 	if err == nil {
 		return &jwk, nil
 	}
 
 	// Failed to unmarshal, attempt to parse as encrypted JWK
-	jwe, err = jose.ParseEncryptedJSON(string(data), allKeyAlgorithms, allEncryptionAlgorithms)
+	jwe, err = jose.ParseEncrypted(string(data), allKeyAlgorithms, allEncryptionAlgorithms)
 	if err == nil {
 		decrypted, err := jwe.Decrypt(password)
 		if err != nil {

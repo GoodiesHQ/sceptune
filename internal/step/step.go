@@ -71,7 +71,7 @@ func NewStepClient(apiUrl, provisionerName, caFingerprint string, chain []*x509.
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
-					RootCAs: certPool,
+					RootCAs:    certPool,
 					MinVersion: tls.VersionTLS12,
 				},
 			},

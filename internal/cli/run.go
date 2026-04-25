@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/goodieshq/sceptune/internal/crl"
+	"github.com/goodieshq/sceptune/internal/crt"
 	"github.com/goodieshq/sceptune/internal/scep"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -44,7 +44,8 @@ func run(ctx context.Context, c *cli.Command) error {
 	)
 
 	// Create a CRL server backed by the Step CA server
-	crlServer := crl.NewCrlServer(signer)
+	crlServer := crt.NewCrlServer(signer)
+	crtServer := crt.NewCrtServer(params.IssuingCaCrt)
 
 	// Rate limit middleware
 	// perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
@@ -53,6 +54,11 @@ func run(ctx context.Context, c *cli.Command) error {
 		// Handlers for Windows SCEP clients
 		r.Get("/pkiclient.exe", scepServerWin.ServeHTTP)
 		r.Post("/pkiclient.exe", scepServerWin.ServeHTTP)
+	})
+
+	// CRT endpoint
+	mux.Route(params.CRTPath, func(r chi.Router) {
+		r.Get("/", crtServer.ServeHTTP)
 	})
 
 	// CRL endpoint

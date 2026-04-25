@@ -16,6 +16,7 @@ import (
 type Params struct {
 	Port                       uint16
 	ScepPath                   string
+	CRTPath                    string
 	CRLPath                    string
 	OAuthIssuerUrl             string
 	OAuthClientID              string
@@ -27,6 +28,7 @@ type Params struct {
 	IntuneComplianceAllowGrace bool
 	IntuneScepCnType           utils.IntuneCnType
 	RootCaCrt                  *x509.Certificate
+	IssuingCaCrt               *x509.Certificate
 	RaCrt                      *x509.Certificate
 	RaKey                      crypto.PrivateKey
 	CaChain                    []*x509.Certificate
@@ -40,10 +42,15 @@ func loadParams(c *cli.Command) (*Params, error) {
 	// Parse the server settings
 	port := c.Uint16("port")
 	scepPath := c.String("scep-path")
+	crtPath := c.String("crt-path")
 	crlPath := c.String("crl-path")
 
 	if !strings.HasPrefix(scepPath, "/") {
 		return nil, fmt.Errorf("SCEP path must start with a leading slash '/'")
+	}
+
+	if !strings.HasPrefix(crtPath, "/") {
+		return nil, fmt.Errorf("CRT path must start with a leading slash '/'")
 	}
 
 	if !strings.HasPrefix(crlPath, "/") {
@@ -228,6 +235,7 @@ func loadParams(c *cli.Command) (*Params, error) {
 	}
 
 	rootCaCrt := chain[len(chain)-1]
+	issuingCaCrt := chain[0]
 
 	// Parse the Step CA settings
 	stepApiUrl := c.String("step-api-url")
@@ -283,6 +291,7 @@ func loadParams(c *cli.Command) (*Params, error) {
 	return &Params{
 		Port:                       port,
 		ScepPath:                   "/" + strings.TrimLeft(scepPath, "/"),
+		CRTPath:                    "/" + strings.TrimLeft(crtPath, "/"),
 		CRLPath:                    "/" + strings.TrimLeft(crlPath, "/"),
 		OAuthIssuerUrl:             oauthIssuerUrl,
 		OAuthClientID:              oauthClientID,
@@ -294,6 +303,7 @@ func loadParams(c *cli.Command) (*Params, error) {
 		IntuneComplianceAllowGrace: intuneComplianceAllowGrace,
 		IntuneScepCnType:           utils.IntuneCnType(intuneScepCnType),
 		RootCaCrt:                  rootCaCrt,
+		IssuingCaCrt:               issuingCaCrt,
 		RaCrt:                      raCrt,
 		RaKey:                      raKey,
 		CaChain:                    chain,
