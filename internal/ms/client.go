@@ -16,8 +16,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/goodieshq/sceptune/internal/utils"
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
-	"github.com/microsoftgraph/msgraph-sdk-go/devicemanagement"
-	"github.com/microsoftgraph/msgraph-sdk-go/models"
 )
 
 const (
@@ -63,82 +61,6 @@ func NewMSClient(tenantID, clientID, clientSecret string) (*MSClient, error) {
 		graphClient: graphClient,
 		httpClient:  &http.Client{Timeout: time.Second * 10},
 	}, nil
-}
-
-func evalDeviceCompliance(device models.ManagedDeviceable, allowGrace bool) (deviceName string, compliant bool, err error) {
-	namePtr := device.GetDeviceName()
-	if namePtr == nil {
-		return "", false, fmt.Errorf("device name is nil")
-	}
-	name := *namePtr
-
-	statePtr := device.GetComplianceState()
-	if statePtr == nil {
-		return name, false, fmt.Errorf("device compliance state is nil")
-	}
-	state := strings.ToLower((*statePtr).String())
-
-	switch state {
-	case "compliant":
-		return name, true, nil
-	case "ingraceperiod":
-		return name, allowGrace, nil
-	default:
-		return name, false, nil
-	}
-}
-
-func (c *MSClient) VerifyCompliance(ctx context.Context, cnType utils.IntuneCnType, cn string, allowGrace bool) (string, bool, error) {
-	switch cnType {
-	case utils.IntuneCnTypeAADDeviceID:
-		return c.verifyComplianceAzureAD(ctx, cn, allowGrace)
-	case utils.IntuneCnTypeDeviceID:
-		return c.verifyComplianceIntune(ctx, cn, allowGrace)
-	}
-	return "", false, fmt.Errorf("unknown CN type: %s", cnType)
-}
-
-func (c *MSClient) verifyComplianceIntune(ctx context.Context, deviceID string, allowGrace bool) (deviceName string, compliant bool, err error) {
-	cfg := &devicemanagement.ManagedDevicesManagedDeviceItemRequestBuilderGetRequestConfiguration{
-		QueryParameters: &devicemanagement.ManagedDevicesManagedDeviceItemRequestBuilderGetQueryParameters{
-			Select: []string{"id", "deviceName", "azureADDeviceId", "complianceState"},
-		},
-	}
-	device, err := c.graphClient.DeviceManagement().ManagedDevices().ByManagedDeviceId(deviceID).Get(ctx, cfg)
-	if err != nil {
-		return "", false, fmt.Errorf("failed to get Intune device info from Graph: %w", err)
-	}
-
-	if device != nil {
-		return evalDeviceCompliance(device, allowGrace)
-	}
-
-	return "", false, fmt.Errorf("device with ID %s not found in Intune", deviceID)
-}
-
-func (c *MSClient) verifyComplianceAzureAD(ctx context.Context, deviceID string, allowGrace bool) (deviceName string, compliant bool, err error) {
-	cfg := &devicemanagement.ManagedDevicesRequestBuilderGetRequestConfiguration{
-		QueryParameters: &devicemanagement.ManagedDevicesRequestBuilderGetQueryParameters{
-			Filter: utils.Ptr(fmt.Sprintf("azureADDeviceId eq '%s'", utils.EscapeODataString(deviceID))),
-			Top:    utils.Ptr[int32](1),
-			Select: []string{"id", "deviceName", "azureADDeviceId", "complianceState"},
-		},
-	}
-	devicesResponse, err := c.graphClient.DeviceManagement().ManagedDevices().Get(ctx, cfg)
-	if err != nil {
-		return "", false, fmt.Errorf("failed to get AzureAD device info from Graph: %w", err)
-	}
-
-	devices := devicesResponse.GetValue()
-	if len(devices) == 0 {
-		return "", false, fmt.Errorf("device with AzureAD ID %s not found in Intune", deviceID)
-	}
-	if len(devices) > 1 {
-		return "", false, fmt.Errorf("multiple devices with AzureAD ID %s found in Intune", deviceID)
-	}
-	device := devices[0]
-
-	return evalDeviceCompliance(device, allowGrace)
 }
 
 // PopulateScepEndpoint fetches the Intune SCEP endpoint from Microsoft Graph

@@ -39,9 +39,7 @@ func run(ctx context.Context, c *cli.Command) error {
 
 	// Create a SCEP server for Windows Intune clients
 	scepServerWin := scep.NewSCEPServerWindows(params.RaCrt, params.RaKey,
-		params.CaChain, verifier, signer, store,
-		params.IntuneComplianceRequired, params.IntuneComplianceAllowGrace, params.IntuneScepCnType,
-	)
+		params.CaChain, verifier, signer, store)
 
 	// Create a CRL server backed by the Step CA server
 	crlServer := crt.NewCrlServer(signer)

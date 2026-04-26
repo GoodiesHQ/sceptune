@@ -18,36 +18,29 @@ import (
 )
 
 type SCEPServerWindows struct {
-	raCrt                *x509.Certificate
-	raKey                crypto.PrivateKey
-	caChain              []*x509.Certificate
-	log                  zerolog.Logger
-	signer               utils.Signer
-	verifier             utils.Verifier
-	store                utils.Store
-	muPurge              sync.Mutex
-	complianceRequired   bool
-	complianceAllowGrace bool
-	intuneCnType         utils.IntuneCnType
-	isPurging            bool
+	raCrt     *x509.Certificate
+	raKey     crypto.PrivateKey
+	caChain   []*x509.Certificate
+	log       zerolog.Logger
+	signer    utils.Signer
+	verifier  utils.Verifier
+	store     utils.Store
+	muPurge   sync.Mutex
+	isPurging bool
 }
 
 // NewSCEPServerWindows creates a new SCEP server instance
 func NewSCEPServerWindows(
 	raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate,
-	verifier utils.Verifier, signer utils.Signer, store utils.Store,
-	complianceRequired, complianceAllowGrace bool, intuneCnType utils.IntuneCnType) *SCEPServerWindows {
+	verifier utils.Verifier, signer utils.Signer, store utils.Store) *SCEPServerWindows {
 	return &SCEPServerWindows{
-		raCrt:                raCert,
-		raKey:                raKey,
-		caChain:              caChain,
-		verifier:             verifier,
-		signer:               signer,
-		store:                store,
-		log:                  log.Logger.With().Str("component", "scep_windows").Logger(),
-		intuneCnType:         intuneCnType,
-		complianceRequired:   complianceRequired,
-		complianceAllowGrace: complianceAllowGrace,
+		raCrt:    raCert,
+		raKey:    raKey,
+		caChain:  caChain,
+		verifier: verifier,
+		signer:   signer,
+		store:    store,
+		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
 	}
 }
 
@@ -166,6 +159,7 @@ func (s *SCEPServerWindows) sendFailureResponse(w http.ResponseWriter, msg *scep
 	if msg == nil {
 		log.Error().Msg("Original message is nil")
 		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
 	}
 
 	// Create failure response

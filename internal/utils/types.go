@@ -28,7 +28,6 @@ type Verifier interface {
 	VerifyCSR(ctx context.Context, csr string, challenge string) (bool, error)
 	NotifyFailure(ctx context.Context, csr, challenge string, hResult int64, errorDescription string) error
 	NotifySuccess(ctx context.Context, csr, challenge string, crt, root *x509.Certificate) error
-	VerifyCompliance(ctx context.Context, cnType IntuneCnType, cn string, allowGrace bool) (string, bool, error)
 }
 
 type Store interface {

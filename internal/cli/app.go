@@ -106,24 +106,6 @@ var App = cli.Command{
 					Value:   "",
 					Sources: cli.EnvVars("SCEPTUNE_INTUNE_CLIENT_SECRET_FILE"),
 				},
-				&cli.BoolFlag{
-					Name:    "intune-compliance-required",
-					Usage:   "Require device compliance check before issuing certificates.",
-					Value:   false,
-					Sources: cli.EnvVars("SCEPTUNE_INTUNE_COMPLIANCE_REQUIRED"),
-				},
-				&cli.BoolFlag{
-					Name:    "intune-compliance-allow-grace",
-					Usage:   "Allow devices in compliance grace period to count as compliant.",
-					Value:   false,
-					Sources: cli.EnvVars("SCEPTUNE_INTUNE_COMPLIANCE_ALLOW_GRACE"),
-				},
-				&cli.StringFlag{
-					Name:    "intune-scep-cn",
-					Usage:   "CN template value used in the Intune SCEP profile (supported: AAD_Device_ID or DeviceId).",
-					Value:   "",
-					Sources: cli.EnvVars("SCEPTUNE_INTUNE_SCEP_CN"),
-				},
 				// Certificates and keys configuration
 				&cli.StringFlag{
 					Name:      "ra-crt",

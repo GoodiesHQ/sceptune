@@ -10,20 +10,19 @@ import (
 )
 
 const (
-	maxRetries    = 2 // 1 initial + 2 retries = 3 total attempts
+	maxRetries    = 2
 	retryBaseWait = 500 * time.Millisecond
 )
 
-// isRetryableStatus returns true for transient HTTP errors worth retrying.
-// Authoritative errors (400, 401, 403, 404, etc.) return false.
+// isRetryableStatus determines if an HTTP status code should trigger a retry
 func isRetryableStatus(status int) bool {
 	switch status {
-	case 0, // network-level error: no response received
-		http.StatusTooManyRequests,    // 429
+	case 0,
+		http.StatusTooManyRequests,     // 429
 		http.StatusInternalServerError, // 500
-		http.StatusBadGateway,         // 502
-		http.StatusServiceUnavailable, // 503
-		http.StatusGatewayTimeout:     // 504
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout:      // 504
 		return true
 	}
 	return false

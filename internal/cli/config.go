@@ -14,28 +14,25 @@ import (
 )
 
 type Params struct {
-	Port                       uint16
-	ScepPath                   string
-	CRTPath                    string
-	CRLPath                    string
-	OAuthIssuerUrl             string
-	OAuthClientID              string
-	OAuthClientSecret          string
-	IntuneTenantID             string
-	IntuneClientID             string
-	IntuneClientSecret         string
-	IntuneComplianceRequired   bool
-	IntuneComplianceAllowGrace bool
-	IntuneScepCnType           utils.IntuneCnType
-	RootCaCrt                  *x509.Certificate
-	IssuingCaCrt               *x509.Certificate
-	RaCrt                      *x509.Certificate
-	RaKey                      crypto.PrivateKey
-	CaChain                    []*x509.Certificate
-	StepApiUrl                 string
-	StepProvisionerName        string
-	StepJWK                    *jose.JSONWebKey
-	DatabasePath               string
+	Port                uint16
+	ScepPath            string
+	CRTPath             string
+	CRLPath             string
+	OAuthIssuerUrl      string
+	OAuthClientID       string
+	OAuthClientSecret   string
+	IntuneTenantID      string
+	IntuneClientID      string
+	IntuneClientSecret  string
+	RootCaCrt           *x509.Certificate
+	IssuingCaCrt        *x509.Certificate
+	RaCrt               *x509.Certificate
+	RaKey               crypto.PrivateKey
+	CaChain             []*x509.Certificate
+	StepApiUrl          string
+	StepProvisionerName string
+	StepJWK             *jose.JSONWebKey
+	DatabasePath        string
 }
 
 func loadParams(c *cli.Command) (*Params, error) {
@@ -121,19 +118,6 @@ func loadParams(c *cli.Command) (*Params, error) {
 	} else {
 		if intuneClientSecretFile != "" {
 			return nil, fmt.Errorf("cannot specify both --intune-client-secret and --intune-client-secret-file")
-		}
-	}
-
-	intuneComplianceRequired := c.Bool("intune-compliance-required")
-	intuneComplianceAllowGrace := c.Bool("intune-compliance-allow-grace")
-	var intuneScepCnType string = ""
-	if intuneComplianceRequired {
-		intuneScepCnType = c.String("intune-scep-cn")
-		if intuneScepCnType == "" {
-			return nil, fmt.Errorf("--intune-scep-cn is required when compliance is enabled")
-		}
-		if intuneScepCnType != "AAD_Device_ID" && intuneScepCnType != "DeviceId" {
-			return nil, fmt.Errorf("Invalid Intune SCEP Common Name value, must be 'AAD_Device_ID' or 'DeviceId'")
 		}
 	}
 
@@ -289,27 +273,24 @@ func loadParams(c *cli.Command) (*Params, error) {
 	}
 
 	return &Params{
-		Port:                       port,
-		ScepPath:                   "/" + strings.TrimLeft(scepPath, "/"),
-		CRTPath:                    "/" + strings.TrimLeft(crtPath, "/"),
-		CRLPath:                    "/" + strings.TrimLeft(crlPath, "/"),
-		OAuthIssuerUrl:             oauthIssuerUrl,
-		OAuthClientID:              oauthClientID,
-		OAuthClientSecret:          oauthClientSecret,
-		IntuneTenantID:             intuneTenantID,
-		IntuneClientID:             intuneClientID,
-		IntuneClientSecret:         intuneClientSecret,
-		IntuneComplianceRequired:   intuneComplianceRequired,
-		IntuneComplianceAllowGrace: intuneComplianceAllowGrace,
-		IntuneScepCnType:           utils.IntuneCnType(intuneScepCnType),
-		RootCaCrt:                  rootCaCrt,
-		IssuingCaCrt:               issuingCaCrt,
-		RaCrt:                      raCrt,
-		RaKey:                      raKey,
-		CaChain:                    chain,
-		StepApiUrl:                 stepApiUrl,
-		StepProvisionerName:        stepProvisionerName,
-		StepJWK:                    jwk,
-		DatabasePath:               dbPath,
+		Port:                port,
+		ScepPath:            "/" + strings.TrimLeft(scepPath, "/"),
+		CRTPath:             "/" + strings.TrimLeft(crtPath, "/"),
+		CRLPath:             "/" + strings.TrimLeft(crlPath, "/"),
+		OAuthIssuerUrl:      oauthIssuerUrl,
+		OAuthClientID:       oauthClientID,
+		OAuthClientSecret:   oauthClientSecret,
+		IntuneTenantID:      intuneTenantID,
+		IntuneClientID:      intuneClientID,
+		IntuneClientSecret:  intuneClientSecret,
+		RootCaCrt:           rootCaCrt,
+		IssuingCaCrt:        issuingCaCrt,
+		RaCrt:               raCrt,
+		RaKey:               raKey,
+		CaChain:             chain,
+		StepApiUrl:          stepApiUrl,
+		StepProvisionerName: stepProvisionerName,
+		StepJWK:             jwk,
+		DatabasePath:        dbPath,
 	}, nil
 }
