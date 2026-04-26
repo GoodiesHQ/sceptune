@@ -150,6 +150,7 @@ func (cs *CertificateStore) MarkIntuneNotified(ctx context.Context, csr, txid st
 	return count > 0, nil
 }
 
+/*
 func (cs *CertificateStore) GetPendingNotifications(ctx context.Context, limit int) ([]CertificateRecord, error) {
 	rows, err := cs.db.QueryContext(ctx, `
 		SELECT
@@ -175,6 +176,7 @@ func (cs *CertificateStore) GetPendingNotifications(ctx context.Context, limit i
 
 	return records, rows.Err()
 }
+*/
 
 func (cs *CertificateStore) PurgeExpired(ctx context.Context) (int64, error) {
 	// Calculate the cutoff timestamp (expired > 24 hours ago)
