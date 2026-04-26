@@ -15,7 +15,7 @@ import (
 )
 
 // handlePKIOperation processes SCEP PKI operations (CSR enrollment, etc.)
-func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Request) {
+func (s *SCEPServer) handlePKIOperation(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug().
 		Str("method", r.Method).
 		Str("url", r.URL.String()).
@@ -68,7 +68,7 @@ func (s *SCEPServerWindows) handlePKIOperation(w http.ResponseWriter, r *http.Re
 }
 
 // handleCSRRequest processes a certificate signing request
-func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
+func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
 	s.log.Info().Msg("Handling CSR Request")
 	if msg == nil {
 		s.log.Error().Msg("Received nil PKI message")
@@ -242,7 +242,7 @@ func (s *SCEPServerWindows) handleCSRRequest(w http.ResponseWriter, r *http.Requ
 }
 
 // handleRenewalRequest processes a certificate renewal request
-func (s *SCEPServerWindows) handleRenewalRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
+func (s *SCEPServer) handleRenewalRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
 	s.log.Info().Msg("Handling Renewal/Update Request")
 
 	// Verify the signer certificate
@@ -321,7 +321,7 @@ func validateCsr(csr *x509.CertificateRequest) error {
 	return nil
 }
 
-func (s *SCEPServerWindows) handleGetCRL(w http.ResponseWriter, r *http.Request) {
+func (s *SCEPServer) handleGetCRL(w http.ResponseWriter, r *http.Request) {
 	s.log.Info().Msg("Handling GetCRL Request")
 
 	// Get the CRL from the Step client

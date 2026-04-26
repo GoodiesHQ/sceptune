@@ -17,7 +17,7 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-type SCEPServerWindows struct {
+type SCEPServer struct {
 	raCrt     *x509.Certificate
 	raKey     crypto.PrivateKey
 	caChain   []*x509.Certificate
@@ -29,17 +29,24 @@ type SCEPServerWindows struct {
 	isPurging bool
 }
 
+type SCEPServerParams struct {
+	RACert   *x509.Certificate
+	RAKey    crypto.PrivateKey
+	CAChain  []*x509.Certificate
+	Verifier utils.Verifier
+	Signer   utils.Signer
+	Store    utils.Store
+}
+
 // NewSCEPServerWindows creates a new SCEP server instance
-func NewSCEPServerWindows(
-	raCert *x509.Certificate, raKey crypto.PrivateKey, caChain []*x509.Certificate,
-	verifier utils.Verifier, signer utils.Signer, store utils.Store) *SCEPServerWindows {
-	return &SCEPServerWindows{
-		raCrt:    raCert,
-		raKey:    raKey,
-		caChain:  caChain,
-		verifier: verifier,
-		signer:   signer,
-		store:    store,
+func NewSCEPServer(params *SCEPServerParams) *SCEPServer {
+	return &SCEPServer{
+		raCrt:    params.RACert,
+		raKey:    params.RAKey,
+		caChain:  params.CAChain,
+		verifier: params.Verifier,
+		signer:   params.Signer,
+		store:    params.Store,
 		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
 	}
 }
@@ -59,7 +66,7 @@ func isErrorBusy(err error) bool {
 	return false
 }
 
-func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
+func (s *SCEPServer) StartPurging(ctx context.Context) {
 	const retries = 3
 	const backoffDefault = time.Millisecond * 100
 
@@ -105,7 +112,7 @@ func (s *SCEPServerWindows) StartPurging(ctx context.Context) {
 }
 
 // ServeHTTP implements the http.Handler interface
-func (s *SCEPServerWindows) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *SCEPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse operation from query parameters
 	operation := r.URL.Query().Get("operation")
 	s.log.Debug().Str("operation", operation).Str("remote_addr", r.RemoteAddr).Msgf("Received %s request", r.Method)
@@ -124,7 +131,7 @@ func (s *SCEPServerWindows) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // logCSRDetails logs detailed information about the CSR
-func (s *SCEPServerWindows) logCSRDetails(csr *x509.CertificateRequest) {
+func (s *SCEPServer) logCSRDetails(csr *x509.CertificateRequest) {
 	s.log.Trace().
 		Str("subject_common_name", csr.Subject.CommonName).
 		Strs("subject_organization", csr.Subject.Organization).
@@ -153,7 +160,7 @@ func (s *SCEPServerWindows) logCSRDetails(csr *x509.CertificateRequest) {
 }
 
 // sendFailureResponse sends a SCEP failure response
-func (s *SCEPServerWindows) sendFailureResponse(w http.ResponseWriter, msg *scep.PKIMessage, failInfo scep.FailInfo) {
+func (s *SCEPServer) sendFailureResponse(w http.ResponseWriter, msg *scep.PKIMessage, failInfo scep.FailInfo) {
 	s.log.Warn().Str("fail_info", failInfo.String()).Msg("Sending failure response")
 
 	if msg == nil {

@@ -7,7 +7,7 @@ import (
 )
 
 // handleGetCACaps returns the CA capabilities
-func (s *SCEPServerWindows) handleGetCACaps(w http.ResponseWriter, r *http.Request) {
+func (s *SCEPServer) handleGetCACaps(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug().
 		Str("method", r.Method).
 		Str("url", r.URL.String()).

@@ -7,7 +7,7 @@ import (
 )
 
 // handleGetCACert handles the SCEP GetCACert operation and returns the CA certificate bundle
-func (s *SCEPServerWindows) handleGetCACert(w http.ResponseWriter, r *http.Request) {
+func (s *SCEPServer) handleGetCACert(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug().
 		Str("method", r.Method).
 		Str("url", r.URL.String()).

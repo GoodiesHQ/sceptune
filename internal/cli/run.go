@@ -38,8 +38,14 @@ func run(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Create a SCEP server for Windows Intune clients
-	scepServerWin := scep.NewSCEPServerWindows(params.RaCrt, params.RaKey,
-		params.CaChain, verifier, signer, store)
+	scepServer := scep.NewSCEPServer(&scep.SCEPServerParams{
+		RACert:   params.RaCrt,
+		RAKey:    params.RaKey,
+		CAChain:  params.CaChain,
+		Verifier: verifier,
+		Signer:   signer,
+		Store:    store,
+	})
 
 	// Create a CRL server backed by the Step CA server
 	crlServer := crt.NewCrlServer(signer)
@@ -50,8 +56,10 @@ func run(ctx context.Context, c *cli.Command) error {
 
 	mux.Route(params.ScepPath, func(r chi.Router) {
 		// Handlers for Windows SCEP clients
-		r.Get("/pkiclient.exe", scepServerWin.ServeHTTP)
-		r.Post("/pkiclient.exe", scepServerWin.ServeHTTP)
+		r.Get("/pkiclient.exe", scepServer.ServeHTTP)
+		r.Post("/pkiclient.exe", scepServer.ServeHTTP)
+		r.Get("/", scepServer.ServeHTTP)
+		r.Post("/", scepServer.ServeHTTP)
 	})
 
 	// CRT endpoint
@@ -89,7 +97,7 @@ func run(ctx context.Context, c *cli.Command) error {
 	}()
 
 	// Start purging revoked certificates
-	scepServerWin.StartPurging(ctx)
+	scepServer.StartPurging(ctx)
 
 	log.Info().Str("address", httpServer.Addr).Msg("Starting SCEP server...")
 	err = httpServer.ListenAndServe()
