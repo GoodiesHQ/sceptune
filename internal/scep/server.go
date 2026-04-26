@@ -47,7 +47,7 @@ func NewSCEPServer(params *SCEPServerParams) *SCEPServer {
 		verifier: params.Verifier,
 		signer:   params.Signer,
 		store:    params.Store,
-		log:      log.Logger.With().Str("component", "scep_windows").Logger(),
+		log:      log.Logger.With().Str("component", "scep_server").Logger(),
 	}
 }
 
@@ -144,19 +144,6 @@ func (s *SCEPServer) logCSRDetails(csr *x509.CertificateRequest) {
 		Strs("dns_names", csr.DNSNames).
 		Strs("email_addresses", csr.EmailAddresses).
 		Msg("Logging CSR details")
-
-	/*
-		// Log the CSR in PEM format for easy copying
-		csrPEM := pem.EncodeToMemory(&pem.Block{
-			Type:  "CERTIFICATE REQUEST",
-			Bytes: csr.Raw,
-		})
-		s.log.Printf("\nCSR (PEM format):\n%s\n", string(csrPEM))
-
-		// Log base64 encoded CSR for Intune API
-		csrBase64 := base64.StdEncoding.EncodeToString(csr.Raw)
-		s.log.Printf("CSR (Base64 - for Intune API):\n%s\n", csrBase64)
-	*/
 }
 
 // sendFailureResponse sends a SCEP failure response

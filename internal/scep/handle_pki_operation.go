@@ -48,19 +48,19 @@ func (s *SCEPServer) handlePKIOperation(w http.ResponseWriter, r *http.Request) 
 
 	// Handle different message types
 	switch msg.MessageType {
-	case scep.RenewalReq, scep.UpdateReq:
-		// s.handleRenewalRequest(w, r, msg)
-		fallthrough
-	case scep.PKCSReq:
+	// Intune handles both new enrollments and renewals through the same PKIOperation with a CSR and fresh challenge
+	case scep.RenewalReq, scep.UpdateReq, scep.PKCSReq:
 		s.handleCSRRequest(w, r, msg)
 	case scep.GetCRL:
 		s.handleGetCRL(w, r)
 	case scep.GetCert:
+		// Intune does not use GetCert, it just requests a new one
 		s.log.Error().Msg("GetCert not implemented")
-		http.Error(w, "GetCert not implemented", http.StatusNotImplemented)
+		s.sendFailureResponse(w, msg, scep.BadRequest)
 	case scep.CertPoll:
+		// Intune does not use CertPoll
 		s.log.Error().Msg("CertPoll not implemented")
-		http.Error(w, "CertPoll not implemented", http.StatusNotImplemented)
+		s.sendFailureResponse(w, msg, scep.BadRequest)
 	default:
 		s.log.Error().Msgf("Unknown message type: %s", msg.MessageType)
 		http.Error(w, "Unknown message type", http.StatusBadRequest)
@@ -239,49 +239,6 @@ func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, ms
 	w.WriteHeader(http.StatusOK)
 	w.Write(msgCrt.Raw)
 	s.log.Info().Msgf("Returned signed certificate for DBID %s", dbid)
-}
-
-// handleRenewalRequest processes a certificate renewal request
-func (s *SCEPServer) handleRenewalRequest(w http.ResponseWriter, r *http.Request, msg *scep.PKIMessage) {
-	s.log.Info().Msg("Handling Renewal/Update Request")
-
-	// Verify the signer certificate
-	if msg.SignerCert == nil {
-		s.log.Error().Msg("No signer certificate found in renewal request")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
-
-	signerSerialNumber := msg.SignerCert.SerialNumber.Text(16)
-	signerSubject := msg.SignerCert.Subject.CommonName
-
-	s.log.Debug().
-		Str("signer_serial", signerSerialNumber).
-		Str("signer_subject", signerSubject).
-		Time("signer_not_after", msg.SignerCert.NotAfter).
-		Msg("Verifying renewal signer certificate")
-
-	// Verify the signer certificate is issued by our CA
-	opts := x509.VerifyOptions{
-		Roots:     x509.NewCertPool(),
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}
-	for _, cert := range s.caChain {
-		opts.Roots.AddCert(cert)
-	}
-
-	if _, err := msg.SignerCert.Verify(opts); err != nil {
-		s.log.Error().Err(err).Msg("Error verifying signer certificate in renewal request")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
-		return
-	}
-	s.log.Info().
-		Str("signer_serial", signerSerialNumber).
-		Str("signer_subject", signerSubject).
-		Msg("Signer certificate verified successfully for renewal request")
-
-	// Handle the CSR request as usual
-	s.handleCSRRequest(w, r, msg)
 }
 
 func validateCsr(csr *x509.CertificateRequest) error {
