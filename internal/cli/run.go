@@ -51,9 +51,6 @@ func run(ctx context.Context, c *cli.Command) error {
 	crlServer := crt.NewCrlServer(signer)
 	crtServer := crt.NewCrtServer(params.IssuingCaCrt)
 
-	// Rate limit middleware
-	// perIP := middlewareRateLimit(ctx, rate.Limit(5), 25)
-
 	mux.Route(params.ScepPath, func(r chi.Router) {
 		// Handlers for Windows SCEP clients
 		r.Get("/pkiclient.exe", scepServer.ServeHTTP)

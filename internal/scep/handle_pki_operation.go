@@ -63,7 +63,7 @@ func (s *SCEPServer) handlePKIOperation(w http.ResponseWriter, r *http.Request) 
 		s.sendFailureResponse(w, msg, scep.BadRequest)
 	default:
 		s.log.Error().Msgf("Unknown message type: %s", msg.MessageType)
-		http.Error(w, "Unknown message type", http.StatusBadRequest)
+		s.sendFailureResponse(w, msg, scep.BadRequest)
 	}
 }
 
@@ -79,14 +79,14 @@ func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, ms
 	// Use the RA cert/key to decrypt the PKI envelope to extract the CSR
 	if err := msg.DecryptPKIEnvelope(s.raCrt, s.raKey); err != nil {
 		s.log.Error().Err(err).Msg("Error decrypting PKI envelope")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
+		s.sendFailureResponse(w, msg, scep.BadMessageCheck)
 		return
 	}
 
 	// Extract CSR and challenge password
 	if msg.CSRReqMessage == nil || msg.CSRReqMessage.CSR == nil {
 		s.log.Error().Msg("No CSR request message found")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
+		s.sendFailureResponse(w, msg, scep.BadMessageCheck)
 		return
 	}
 
@@ -94,9 +94,9 @@ func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, ms
 	challenge := msg.CSRReqMessage.ChallengePassword
 
 	// Validate CSR
-	if err := validateCsr(csr); err != nil {
+	if failInfo, err := validateCsr(csr); err != nil {
 		s.log.Error().Err(err).Msg("Invalid CSR")
-		s.sendFailureResponse(w, msg, scep.BadRequest)
+		s.sendFailureResponse(w, msg, failInfo)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, ms
 		return
 	}
 
-	var msgCrt *scep.PKIMessage = nil
+	var msgCrt *scep.PKIMessage
 
 	if crt != nil {
 		// Certificate already exists
@@ -241,14 +241,14 @@ func (s *SCEPServer) handleCSRRequest(w http.ResponseWriter, r *http.Request, ms
 	s.log.Info().Msgf("Returned signed certificate for DBID %s", dbid)
 }
 
-func validateCsr(csr *x509.CertificateRequest) error {
+func validateCsr(csr *x509.CertificateRequest) (scep.FailInfo, error) {
 	if csr == nil {
-		return fmt.Errorf("CSR is nil")
+		return scep.BadRequest, fmt.Errorf("CSR is nil")
 	}
 
 	// Check CSR signature validity
 	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("invalid CSR signature: %w", err)
+		return scep.BadMessageCheck, fmt.Errorf("invalid CSR signature: %w", err)
 	}
 
 	// Check CSR signature algorithm
@@ -258,24 +258,24 @@ func validateCsr(csr *x509.CertificateRequest) error {
 		x509.SHA1WithRSA, x509.ECDSAWithSHA1:
 		// Supported algorithms
 	default:
-		return fmt.Errorf("unsupported CSR signature algorithm: %s", csr.SignatureAlgorithm)
+		return scep.BadAlg, fmt.Errorf("unsupported CSR signature algorithm: %s", csr.SignatureAlgorithm)
 	}
 
 	// Check key size for RSA
 	if csr.PublicKeyAlgorithm == x509.RSA {
 		if rsaPubKey, ok := csr.PublicKey.(*rsa.PublicKey); ok {
 			if rsaPubKey.N.BitLen() < 2048 {
-				return fmt.Errorf("RSA key size is too small: %d bits", rsaPubKey.N.BitLen())
+				return scep.BadRequest, fmt.Errorf("RSA key size is too small: %d bits", rsaPubKey.N.BitLen())
 			}
 		}
 	}
 
 	// Check CSR subject
 	if csr.Subject.CommonName == "" {
-		return fmt.Errorf("CSR subject common name is empty")
+		return scep.BadRequest, fmt.Errorf("CSR subject common name is empty")
 	}
 
-	return nil
+	return scep.FailInfo(""), nil
 }
 
 func (s *SCEPServer) handleGetCRL(w http.ResponseWriter, r *http.Request) {
