@@ -2,25 +2,15 @@
 # bootstrap.sh — initialize step-ca with existing PKI for SCEPTune setup
 set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-info()    { echo -e "${CYAN}[.]${RESET} $*"; }
-success() { echo -e "${GREEN}[+]${RESET} $*"; }
-error()   { echo -e "${RED}[!] ERROR:${RESET} $*"; }
-
 ### Settings/variables
 
 # Internal DNS name — matches container name and SCEPTUNE_STEP_API_URL
 CA_HOST="stepca-clients"
-
 CA_PORT=443
 
 # CRL location, must match the CRL Path served by SCEPTune
-CRL_IDP_URL="http://clients.pki.datalinknetworks.net/intermediate_ca.crl"
+CRL_URL="http://clients.pki.datalinknetworks.net/intermediate_ca.crl"
+CRT_URL="http://clients.pki.datalinknetworks.net/intermediate_ca.crt"
 
 # Certificate expiry info for issuing certs
 MIN_TLS_DUR="24h"
@@ -55,6 +45,16 @@ STEP_DIR="./ca"
 # ################################################################################################
 
 ALL_FILES="root_ca.crt intermediate_ca.crt intermediate_ca.key intermediate_ca.txt scep_ra.crt scep_ra.key scep_ra.txt sceptune.jwk.txt"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info()    { echo -e "${CYAN}[.]${RESET} $*"; }
+success() { echo -e "${GREEN}[+]${RESET} $*"; }
+error()   { echo -e "${RED}[!] ERROR:${RESET} $*"; }
 
 verify_key() {
     local label="$1"
@@ -172,7 +172,7 @@ echo ""
 
 # Create directory structure for step-ca
 info "Creating and initializing step-ca"
-mkdir -p "$STEP_DIR/certs" "$STEP_DIR/secrets" "$STEP_DIR/config" "$STEP_DIR/db"
+mkdir -p "$STEP_DIR/certs" "$STEP_DIR/secrets" "$STEP_DIR/config" "$STEP_DIR/db" "$STEP_DIR/templates/certs"
 
 # Write password files (step-ca reads these at startup to decrypt keys) and set perms
 echo -n "$CA_PASSWORD"  > "$STEP_DIR/secrets/password"
@@ -243,11 +243,11 @@ cat > "$STEP_DIR/config/defaults.json" <<EOF
 }
 EOF
 
-jq --arg idpURL "$CRL_IDP_URL" '
+jq --arg crlURL "$CRL_URL" '
     .crl = {
         "enabled": true,
         "generateOnRevoke": true,
-        "idpURL": $idpURL,
+        "idpURL": $crlURL,
         "cacheDuration": "24h",
         "renewPeriod": "16h"
     }
@@ -255,25 +255,55 @@ jq --arg idpURL "$CRL_IDP_URL" '
     && mv "$STEP_DIR/config/ca.json.tmp" "$STEP_DIR/config/ca.json" \
     || { error "Failed to patch CRL config into ca.json"; exit 1; }
 
-jq "
-    (.authority.provisioners[] | select(.name == \"${PROVISIONER_NAME}\")).claims = {
-        \"minTLSCertDuration\": \"${MIN_TLS_DUR}\",
-        \"maxTLSCertDuration\": \"${MAX_TLS_DUR}\",
-        \"defaultTLSCertDuration\": \"${DEF_TLS_DUR}\",
-        \"disableRenewal\": false,
-        \"allowRenewalAfterExpiry\": false,
-        \"disableSmallstepExtensions\": false
-    }
-" "$STEP_DIR/config/ca.json" > "$STEP_DIR/config/ca.json.tmp" \
+jq --arg name "$PROVISIONER_NAME" \
+   --arg minDur "$MIN_TLS_DUR" \
+   --arg maxDur "$MAX_TLS_DUR" \
+   --arg defDur "$DEF_TLS_DUR" \
+   '(.authority.provisioners[] | select(.name == $name)).claims = {
+        "minTLSCertDuration": $minDur,
+        "maxTLSCertDuration": $maxDur,
+        "defaultTLSCertDuration": $defDur,
+        "disableRenewal": false,
+        "allowRenewalAfterExpiry": false,
+        "disableSmallstepExtensions": false
+    }' "$STEP_DIR/config/ca.json" > "$STEP_DIR/config/ca.json.tmp" \
     && mv "$STEP_DIR/config/ca.json.tmp" "$STEP_DIR/config/ca.json" \
     || { error "Failed to patch provisioner claims into ca.json"; exit 1; }
+
+jq \
+    --arg tplFile "templates/certs/sceptune.tpl" \
+    --arg crlURL "$CRL_URL" \
+    --arg crtURL "$CRT_URL" \
+    '(.authority.provisioners[] | select(.name == "sceptune")).options = {
+        "x509": {
+            "templateFile": $tplFile,
+            "templateData": {
+                "CRLURL": $crlURL,
+                "CRTURL": $crtURL
+            }
+        }
+    }
+' "$STEP_DIR/config/ca.json" > "$STEP_DIR/config/ca.json.tmp" \
+    && mv "$STEP_DIR/config/ca.json.tmp" "$STEP_DIR/config/ca.json" \
+    || { error "Failed to patch provisioner template into ca.json"; exit 1; }
+
+cat > "$STEP_DIR/templates/certs/sceptune.tpl" <<EOF
+{
+    "subject": {{ toJson .Insecure.CR.Subject }},
+    "extensions": {{ toJson .Insecure.CR.Extensions }},
+    "basicConstraints": { "isCA": false },
+    "crlDistributionPoints": ["${CRL_URL}"],
+    "issuingCertificateURL": ["${CRT_URL}"]
+}
+EOF
 
 STEPCA_UID=1000
 SCEPTUNE_UID=65532
 
 sudo chown "$STEPCA_UID" \
     "$STEP_DIR/secrets/intermediate_ca_key" \
-    "$STEP_DIR/secrets/password"
+    "$STEP_DIR/secrets/password" \
+    "$STEP_DIR/templates/certs/sceptune.tpl"
 
 sudo chown "$SCEPTUNE_UID" \
     "$STEP_DIR/secrets/scep_ra.txt" \
